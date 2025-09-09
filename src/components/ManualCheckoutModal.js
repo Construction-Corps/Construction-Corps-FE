@@ -12,7 +12,9 @@ const ManualCheckoutModal = ({
   onCancel, 
   onSuccess, 
   selectedItems = [],
-  preselectedItems = []
+  preselectedItems = [],
+  defaultAction,
+  defaultLocationName
 }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -41,8 +43,16 @@ const ManualCheckoutModal = ({
       if (user?.id) {
         form.setFieldsValue({ user_id: user.id });
       }
+
+      // Apply provided defaults
+      if (defaultAction) {
+        form.setFieldsValue({ action: defaultAction });
+      }
+      if (defaultLocationName) {
+        form.setFieldsValue({ location_name: defaultLocationName });
+      }
     }
-  }, [open, preselectedItems, user, form]);
+  }, [open, preselectedItems, user, form, defaultAction, defaultLocationName]);
 
   const fetchData = async () => {
     try {

@@ -605,6 +605,13 @@ const ItemsPage = () => {
       render: (name, record) => name || '—' 
     },
     { 
+      title: 'Checked Out By', 
+      dataIndex: ['last_known_location', 'user_name'], 
+      key: 'checked_out_by',
+      width: 160,
+      render: (name, record) => name || '—'
+    },
+    { 
       title: 'QR Code', 
       dataIndex: 'qr_code', 
       key: 'qr_code',

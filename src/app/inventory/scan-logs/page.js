@@ -13,6 +13,7 @@ const ScanLogsPage = () => {
   const [items, setItems] = useState([]);
   const [dataManager, setDataManager] = useState(null);
   const [isCheckoutModalVisible, setIsCheckoutModalVisible] = useState(false);
+  const [modalDefaults, setModalDefaults] = useState({ action: null, item: null, location_name: null });
 
   useEffect(() => {
     fetchSupportingData();
@@ -107,12 +108,27 @@ const ScanLogsPage = () => {
         { text: 'Check Out', value: 'CHECK_OUT' },
         { text: 'Audit', value: 'AUDIT' }
       ],
-      render: (action) => {
+      render: (action, record) => {
         let color = 'geekblue';
         if (action === 'CHECK_IN') color = 'green';
         if (action === 'CHECK_OUT') color = 'volcano';
         if (action === 'AUDIT') color = 'blue';
-        return <Tag color={color}>{action.replace('_', ' ')}</Tag>;
+        const opposite = action === 'CHECK_OUT' ? 'CHECK_IN' : action === 'CHECK_IN' ? 'CHECK_OUT' : null;
+        const tag = <Tag color={color}>{action.replace('_', ' ')}</Tag>;
+        if (!opposite) return tag;
+        return (
+          <span
+            style={{ cursor: 'pointer' }}
+            onClick={() => {
+              const itm = items.find(i => i.id === record.item);
+              setModalDefaults({ action: opposite, item: itm ? [itm] : [], location_name: record.location_name || null });
+              setIsCheckoutModalVisible(true);
+            }}
+            title={`Click to ${opposite.replace('_', ' ').toLowerCase()}`}
+          >
+            {tag}
+          </span>
+        );
       },
       width: 120,
     },
@@ -235,6 +251,9 @@ const ScanLogsPage = () => {
               dataManager.refreshData();
             }
           }}
+          preselectedItems={modalDefaults.item || []}
+          defaultAction={modalDefaults.action || undefined}
+          defaultLocationName={modalDefaults.location_name || undefined}
         />
       </div>
     </ProtectedRoute>
