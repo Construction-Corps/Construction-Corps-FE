@@ -52,7 +52,7 @@ const Navigation = () => {
 
           {/* Hardcoded Inventory Menu */}
           {isAuthenticated && (
-            <Menu.SubMenu key="inventory" title="Inventory" icon={<AppstoreOutlined />}>
+            <Menu.ItemGroup key="inventory" title={<><AppstoreOutlined /> Inventory</>}>
               <Menu.Item key="/inventory/items">
                 <Link href="/inventory/items">Items</Link>
               </Menu.Item>
@@ -77,7 +77,7 @@ const Navigation = () => {
               <Menu.Item key="/inventory/scan">
                 <Link href="/inventory/scan">Scan Simulator</Link>
               </Menu.Item>
-            </Menu.SubMenu>
+            </Menu.ItemGroup>
           )}
         </Menu>
         

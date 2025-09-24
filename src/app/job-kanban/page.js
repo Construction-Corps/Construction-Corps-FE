@@ -571,15 +571,17 @@ useEffect(() => {
 
   // Add jobs to appropriate columns
   jobs.forEach(job => {
+    const stageFromMetadata = jobMetadata[job.id]?.stage;
     const stageCfv = job.customFieldValues.nodes.find(
       node => node.customField.id === fieldId
     );
+    const stageValue = stageFromMetadata ?? (stageCfv ? stageCfv.value : null);
 
-    if (!stageCfv || !stageCfv.value) {
+    if (!stageValue) {
       // Job has no value for this field - add to unassigned
       unassignedJobs.push(job);
     } else {
-      const stage = stageCfv.value;
+      const stage = stageValue;
       if (newColumns[stage]) {
         newColumns[stage].push(job);
       } else if (!hasFieldSelections && stage !== 'Not Set') {
@@ -766,7 +768,7 @@ const onDragEnd = async (result) => {
 
     // If API update successful (didn't throw), apply final deduplication
     // Double-check for any duplicates after API success
-    setColumns(prevColumns => deduplicateColumns(prevColumns));
+    // setColumns(prevColumns => deduplicateColumns(prevColumns)); // removed per request: trust backend, do not re-verify
     
     message.success(`Job moved to ${destination.droppableId}`);
   } catch (error) {
