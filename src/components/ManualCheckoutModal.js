@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Form, Select, Input, InputNumber, Button, Space, Card, Typography, message, Divider, Tag } from 'antd';
 import { PlusOutlined, MinusOutlined, UserOutlined, EnvironmentOutlined, AimOutlined } from '@ant-design/icons';
-import { manualCheckout, fetchInventory, fetchUsers } from '../utils/InventoryApi';
+import { manualCheckout, fetchInventory, fetchPublicUsers } from '../utils/InventoryApi';
 import { useAuth } from '../contexts/AuthContext';
 
 const { Option } = Select;
@@ -58,7 +58,7 @@ const ManualCheckoutModal = ({
     try {
       const [itemsData, usersData] = await Promise.all([
         fetchInventory('items'),
-        fetchUsers()
+        fetchPublicUsers()
       ]);
       setItems(itemsData);
       setUsers(usersData);
@@ -196,13 +196,11 @@ const ManualCheckoutModal = ({
               option.children.toLowerCase().includes(input.toLowerCase())
             }
           >
-            {users.map(user => (
-              <Option key={user.id} value={user.id}>
-                {user.first_name && user.last_name 
-                  ? `${user.first_name} ${user.last_name}` 
-                  : user.email}
-              </Option>
-            ))}
+                      {users.map(user => (
+            <Option key={user.id} value={user.id}>
+              {[user.first_name, user.last_name].filter(Boolean).join(' ').trim() || `${user.id}`}
+            </Option>
+          ))}
           </Select>
         </Form.Item>
 
@@ -252,7 +250,8 @@ const ManualCheckoutModal = ({
           </Space>
         </Card>
 
-        {/* Item Selection */}
+        {/* Item Selection (hidden per UX request) */}
+        {false && (
         <Card size="small" title="Select Items" style={{ marginBottom: 16 }}>
           <div style={{ maxHeight: 300, overflowY: 'auto' }}>
             {items.map(item => (
@@ -297,6 +296,7 @@ const ManualCheckoutModal = ({
             ))}
           </div>
         </Card>
+        )}
 
         {/* Summary */}
         {selectedItemIds.size > 0 && (
@@ -309,11 +309,29 @@ const ManualCheckoutModal = ({
               {getSelectedItems().map(item => (
                 <div key={item.id} style={{ 
                   display: 'flex', 
+                  alignItems: 'center',
                   justifyContent: 'space-between', 
+                  gap: 8,
                   marginBottom: '4px' 
                 }}>
-                  <span>{item.name}</span>
-                  <Tag color="blue">{itemQuantities[item.id] || 1}</Tag>
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
+                  <Space>
+                    <InputNumber 
+                      min={1}
+                      max={item.quantity || 9999}
+                      value={itemQuantities[item.id] || 1}
+                      onChange={(value) => handleQuantityChange(item.id, value)}
+                      size="small"
+                      style={{ width: 80 }}
+                    />
+                    <Button 
+                      danger 
+                      size="small" 
+                      onClick={() => handleItemSelection(item.id, false)}
+                    >
+                      Remove
+                    </Button>
+                  </Space>
                 </div>
               ))}
             </div>
