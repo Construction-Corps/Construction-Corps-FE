@@ -200,7 +200,7 @@ export default function JobKanbanPage() {
         const defaults = fieldId === "22P7Rp2AWjYT"
           ? [
               { fieldId: "22NwzQcjYUA4", defaults: [ "Design Proposal in Progress 📝",
-                "Design Proposal Sent 📤","Design Sold 💲","In Planning & Design 🎨", "Design Approved by Client👍" ] },
+                "Design Proposal Sent 📤","Design Sold 💼","In Planning & Design 🎨", "Design Approved by Client👍" ] },
               { fieldId: "22P7Rp2AWjYT", defaults: ["DEV. TEAM", "IN REVIEW/QC- PABLO"] },
             ]
           : null;
@@ -978,7 +978,7 @@ const handleEditingTaskInputChange = (value) => {
 const defaultSelections = () => {
   if (fieldId === "22P7Rp2AWjYT") {
     return [{ fieldId: "22NwzQcjYUA4", defaults: [ "Design Proposal in Progress 📝",
-            "Design Proposal Sent 📤","Design Sold 💲","In Planning & Design 🎨", "Design Approved by Client👍" ] },
+            "Design Proposal Sent 📤","Design Sold 💼" ,"In Planning & Design 🎨", "Design Approved by Client👍" ] },
           { fieldId: "22P7Rp2AWjYT", defaults: ["DEV. TEAM", "IN REVIEW/QC- PABLO"] },
           ];
   } else {

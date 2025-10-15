@@ -51,7 +51,7 @@ const Navigation = () => {
           ))}
 
           {/* Hardcoded Inventory Menu */}
-          {isAuthenticated && (
+          {/* {isAuthenticated && (
             <Menu.ItemGroup key="inventory" title={<><AppstoreOutlined /> Inventory</>}>
               <Menu.Item key="/inventory/items">
                 <Link href="/inventory/items">Items</Link>
@@ -78,7 +78,7 @@ const Navigation = () => {
                 <Link href="/inventory/scan">Scan Simulator</Link>
               </Menu.Item>
             </Menu.ItemGroup>
-          )}
+          )} */}
         </Menu>
         
         <Divider style={{ margin: '24px 0 16px' }} />
