@@ -199,7 +199,7 @@ const JobStatusFilter = ({
             // First, apply hardcoded fallback defaults for the 'Stage' field.
             if (field.name === 'Stage') {
               defaultValues = ["Job Started 🔨", "Job Mid Way ⚒️", "Job Complete ✅", 
-                              "Pre-Production 🗓️", "Awaiting Payment ⏲️"];
+                              "Pre-Production 🚧", "Awaiting Payment ⏲️"];
             }
             
             // Then, override with specific defaults from props if they exist for this field.
