@@ -30,7 +30,6 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import ProtectedRoute from '@/components/ProtectedRoute';
 import ThemeSwitch from '../components/ThemeSwitch';
 import { fetchJobTread } from '@/utils/JobTreadApi';
 import {
@@ -574,13 +573,11 @@ function ReceiptReviewWorkspace() {
 
 export default function ReceiptReviewPage() {
   return (
-    <ProtectedRoute>
-      <Layout style={{ minHeight: '100vh', background: 'var(--background)' }}>
-        <ThemeSwitch />
-        <Content>
-          <ReceiptReviewWorkspace />
-        </Content>
-      </Layout>
-    </ProtectedRoute>
+    <Layout style={{ minHeight: '100vh', background: 'var(--background)' }}>
+      <ThemeSwitch />
+      <Content>
+        <ReceiptReviewWorkspace />
+      </Content>
+    </Layout>
   );
 }

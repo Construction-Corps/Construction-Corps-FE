@@ -1,5 +1,3 @@
-import { toast } from 'react-toastify';
-
 const API_ROOT = (process.env.NEXT_PUBLIC_API_BASE_URL || 'https://ccbe.onrender.com').replace(/\/$/, '');
 
 const _authHeaders = () => {
@@ -12,17 +10,6 @@ const _authHeaders = () => {
 };
 
 const _handleResponse = async (response) => {
-  if (response.status === 401) {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('user');
-    }
-    if (typeof window !== 'undefined') {
-      toast.error('Your session has expired. Please log in again.');
-      window.location.href = '/login';
-    }
-    throw new Error('Unauthorized');
-  }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(data.error || data.detail || `Request failed (${response.status})`);
