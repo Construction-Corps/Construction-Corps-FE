@@ -76,3 +76,12 @@ export const rejectReceiptStaging = async (id) => {
   });
   return _handleResponse(response);
 };
+
+export const reclassifyReceiptStaging = async (id, payload = {}) => {
+  const response = await fetch(`${API_ROOT}/api/receipts/staging/${id}/reclassify/`, {
+    method: 'POST',
+    headers: _authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return _handleResponse(response);
+};

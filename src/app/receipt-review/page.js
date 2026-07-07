@@ -38,6 +38,7 @@ import {
   fetchReceiptStagingDetail,
   postReceiptStaging,
   rejectReceiptStaging,
+  reclassifyReceiptStaging,
 } from '@/utils/ReceiptStagingApi';
 
 const { Content } = Layout;
@@ -84,6 +85,7 @@ function ReceiptReviewWorkspace() {
   const [queue, setQueue] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [detail, setDetail] = useState(null);
+  const [catalogOptions, setCatalogOptions] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [loadingQueue, setLoadingQueue] = useState(false);
@@ -173,6 +175,8 @@ function ReceiptReviewWorkspace() {
 
   const applyDetailToForm = useCallback((row) => {
     const ri = row.receipt_input || {};
+    const assignments = row.line_assignments || ri.line_assignments || [];
+    setCatalogOptions(row.catalog_options || []);
     form.setFieldsValue({
       job_id: row.job_id,
       job_name: row.job_name,
@@ -184,9 +188,10 @@ function ReceiptReviewWorkspace() {
       tax: ri.tax,
       payment_method: ri.payment_method || 'Card',
       message_text: ri.message_text || row.message_text,
-      line_items: (ri.line_items || []).map((li) => ({
+      line_items: (ri.line_items || []).map((li, idx) => ({
         description: li.description,
         amount: li.amount,
+        budget_item_id: assignments[idx] || null,
       })),
     });
   }, [form]);
@@ -228,7 +233,45 @@ function ReceiptReviewWorkspace() {
       description: li.description,
       amount: Number(li.amount),
     })),
+    line_assignments: (values.line_items || []).map((li) => li.budget_item_id || null),
   });
+
+  const handleJobChange = async (jobId) => {
+    if (!selectedId) return;
+    const job = jobs.find((j) => j.id === jobId);
+    form.setFieldValue('job_name', job?.name || '');
+    setSubmitting(true);
+    try {
+      const values = form.getFieldsValue();
+      const payload = { ...buildPayload({ ...values, job_id: jobId, job_name: job?.name }), reclassify: true };
+      const row = await reclassifyReceiptStaging(selectedId, payload);
+      setDetail(row);
+      applyDetailToForm(row);
+      message.success('Budget coding refreshed for job');
+    } catch (err) {
+      message.error(err.message || 'Failed to refresh budget coding');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleReclassify = async () => {
+    if (!selectedId) return;
+    setSubmitting(true);
+    try {
+      const values = await form.validateFields();
+      const payload = { ...buildPayload(values), reclassify: true };
+      const row = await reclassifyReceiptStaging(selectedId, payload);
+      setDetail(row);
+      applyDetailToForm(row);
+      message.success('Budget suggestions updated');
+    } catch (err) {
+      if (err?.errorFields) return;
+      message.error(err.message || 'Failed to reclassify lines');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handlePost = async () => {
     if (!selectedId) return;
@@ -309,7 +352,7 @@ function ReceiptReviewWorkspace() {
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
         <div>
           <Title level={3} style={{ margin: 0 }}>Receipt Review</Title>
-          <Text type="secondary">Review OCR suggestions, edit fields, then post bill + payment</Text>
+          <Text type="secondary">Review OCR + budget coding suggestions, edit, then post bill + payment</Text>
         </div>
         <Button icon={<ReloadOutlined />} onClick={loadQueue} loading={loadingQueue}>
           Refresh
@@ -386,10 +429,7 @@ function ReceiptReviewWorkspace() {
                         placeholder="Select job"
                         optionFilterProp="label"
                         options={jobs.map((j) => ({ value: j.id, label: j.name }))}
-                        onChange={(value) => {
-                          const job = jobs.find((j) => j.id === value);
-                          form.setFieldValue('job_name', job?.name || '');
-                        }}
+                        onChange={handleJobChange}
                       />
                     </Form.Item>
                     <Form.Item name="job_name" hidden><Input /></Form.Item>
@@ -443,11 +483,21 @@ function ReceiptReviewWorkspace() {
                       <TextArea rows={2} />
                     </Form.Item>
 
-                    <Divider orientation="left" plain>Line items</Divider>
+                    <Divider orientation="left" plain>Line items + budget coding</Divider>
+                    {(detail?.line_filing || []).length > 0 && (
+                      <Alert
+                        type="info"
+                        showIcon
+                        style={{ marginBottom: 12 }}
+                        message="Budget matched before review — edit coding below if needed."
+                      />
+                    )}
                     <Form.List name="line_items">
                       {(fields, { add, remove }) => (
                         <>
-                          {fields.map(({ key, name, ...restField }) => (
+                          {fields.map(({ key, name, ...restField }) => {
+                            const filing = (detail?.line_filing || [])[name];
+                            return (
                             <Row gutter={8} key={key} align="middle" style={{ marginBottom: 8 }}>
                               <Col flex="auto">
                                 <Form.Item
@@ -459,7 +509,25 @@ function ReceiptReviewWorkspace() {
                                   <Input placeholder="Item description" />
                                 </Form.Item>
                               </Col>
-                              <Col span={8}>
+                              <Col span={7}>
+                                <Form.Item
+                                  {...restField}
+                                  name={[name, 'budget_item_id']}
+                                  rules={[{ required: true, message: 'Budget line required' }]}
+                                  style={{ marginBottom: 0 }}
+                                >
+                                  <Select
+                                    showSearch
+                                    placeholder="Budget item"
+                                    optionFilterProp="label"
+                                    options={catalogOptions.map((o) => ({
+                                      value: o.id,
+                                      label: o.label,
+                                    }))}
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col span={5}>
                                 <Form.Item
                                   {...restField}
                                   name={[name, 'amount']}
@@ -472,11 +540,24 @@ function ReceiptReviewWorkspace() {
                               <Col>
                                 <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f' }} />
                               </Col>
+                              {filing?.src && (
+                                <Col span={24}>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    Suggested: {filing.group} → {filing.item} ({filing.src})
+                                  </Text>
+                                </Col>
+                              )}
                             </Row>
-                          ))}
-                          <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                            Add line item
-                          </Button>
+                            );
+                          })}
+                          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                            <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />}>
+                              Add line item
+                            </Button>
+                            <Button onClick={handleReclassify} disabled={submitting}>
+                              Re-match budget lines
+                            </Button>
+                          </Space>
                         </>
                       )}
                     </Form.List>
