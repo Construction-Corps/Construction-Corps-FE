@@ -62,6 +62,19 @@ function isMiscAssignment(value) {
   return value === MISC_ASSIGNMENT;
 }
 
+function catalogOptionSearchText(option) {
+  const d = option || {};
+  return [
+    d.label,
+    d.group_path,
+    d.group,
+    d.name,
+    d.budget_hint,
+    d.cost_code_name,
+    d.description,
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
 function renderCatalogOption(option) {
   const d = option.data || {};
   const groupLabel = d.group_path || d.group;
@@ -1050,10 +1063,12 @@ function ReceiptReviewWorkspace() {
                                     <Select
                                       showSearch
                                       placeholder="Change budget item"
-                                      optionFilterProp="label"
                                       optionLabelProp="label"
                                       options={catalogSelectOptions}
                                       optionRender={renderCatalogOption}
+                                      filterOption={(input, option) => (
+                                        catalogOptionSearchText(option).includes(input.toLowerCase())
+                                      )}
                                     />
                                   </Form.Item>
                                 </Col>
