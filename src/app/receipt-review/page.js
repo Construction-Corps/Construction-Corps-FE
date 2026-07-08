@@ -49,12 +49,12 @@ const { Content } = Layout;
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
-const PAYMENT_METHODS = ['Card', 'Cash', 'Check', 'ACH', 'Other'];
+const PAYMENT_METHODS = ['Capital One Spark', 'Card', 'Cash', 'Check', 'ACH', 'Other'];
 const US_DATE = 'MM/DD/YYYY';
 const US_DATETIME = 'MM/DD/YYYY h:mm A';
 const JT_JOB_URL = (jobId) => (jobId ? `https://app.jobtread.com/jobs/${jobId}` : null);
 const JT_BILL_URL = (jobId, billId) =>
-  jobId && billId ? `https://app.jobtread.com/jobs/${jobId}?documentId=${billId}` : null;
+  jobId && billId ? `https://app.jobtread.com/jobs/${jobId}/documents/${billId}` : null;
 
 function roundMoney(n) {
   const x = Number(n);
@@ -280,7 +280,7 @@ function ReceiptReviewWorkspace() {
       subtotal: ri.subtotal,
       tax: ri.tax,
       discount: ri.discount != null ? Math.abs(Number(ri.discount)) : null,
-      payment_method: ri.payment_method || 'Card',
+      payment_method: 'Capital One Spark',
       message_text: ri.message_text || row.message_text,
       line_items: (ri.line_items || []).map((li, idx) => ({
         description: li.description,
@@ -856,7 +856,6 @@ function ReceiptReviewWorkspace() {
                         <>
                           <Row gutter={8} style={{ marginBottom: 4, color: '#888', fontSize: 12 }}>
                             <Col flex="auto">Description</Col>
-                            <Col span={7}>Budget</Col>
                             <Col span={4}>Item</Col>
                             <Col span={4}>Adj</Col>
                             <Col style={{ width: 20 }} />
@@ -864,66 +863,102 @@ function ReceiptReviewWorkspace() {
                           {fields.map(({ key, name, ...restField }) => {
                             const filing = (detail?.line_filing || [])[name];
                             const adj = adjPreview.lines[name]?.adj;
+                            const selectedId = watchedLines?.[name]?.budget_item_id;
+                            const selectedOpt = catalogOptions.find((o) => o.id === selectedId);
+                            const destGroup = selectedOpt?.group || filing?.group || '—';
+                            const destItem = selectedOpt?.name || filing?.item || '—';
+                            const destSrc = filing?.src || (selectedId ? 'manual' : null);
                             return (
-                            <Row gutter={8} key={key} align="middle" style={{ marginBottom: 8 }}>
-                              <Col flex="auto">
-                                <Form.Item
-                                  {...restField}
-                                  name={[name, 'description']}
-                                  rules={[{ required: true, message: 'Description required' }]}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <Input placeholder="Item description" />
-                                </Form.Item>
-                              </Col>
-                              <Col span={7}>
-                                <Form.Item
-                                  {...restField}
-                                  name={[name, 'budget_item_id']}
-                                  rules={[{ required: true, message: 'Budget line required' }]}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <Select
-                                    showSearch
-                                    placeholder="Budget item"
-                                    optionFilterProp="label"
-                                    options={catalogOptions.map((o) => ({
-                                      value: o.id,
-                                      label: o.label,
-                                    }))}
-                                  />
-                                </Form.Item>
-                              </Col>
-                              <Col span={4}>
-                                <Form.Item
-                                  {...restField}
-                                  name={[name, 'amount']}
-                                  rules={[{ required: true, message: 'Amount required' }]}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <InputNumber style={{ width: '100%' }} min={0} step={0.01} precision={2} prefix="$" />
-                                </Form.Item>
-                              </Col>
-                              <Col span={4}>
-                                <InputNumber
-                                  style={{ width: '100%' }}
-                                  value={adj != null ? adj : undefined}
-                                  precision={2}
-                                  prefix="$"
-                                  disabled
-                                />
-                              </Col>
-                              <Col>
-                                <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f' }} />
-                              </Col>
-                              {filing?.src && (
-                                <Col span={24}>
-                                  <Text type="secondary" style={{ fontSize: 12 }}>
-                                    Suggested: {filing.group} → {filing.item} ({filing.src})
-                                  </Text>
+                            <div
+                              key={key}
+                              style={{
+                                marginBottom: 12,
+                                padding: 10,
+                                border: '1px solid #f0f0f0',
+                                borderRadius: 8,
+                                background: 'rgba(0,0,0,0.02)',
+                              }}
+                            >
+                              <Row gutter={8} align="middle">
+                                <Col flex="auto">
+                                  <Form.Item
+                                    {...restField}
+                                    name={[name, 'description']}
+                                    rules={[{ required: true, message: 'Description required' }]}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Input placeholder="Item description" />
+                                  </Form.Item>
                                 </Col>
-                              )}
-                            </Row>
+                                <Col span={4}>
+                                  <Form.Item
+                                    {...restField}
+                                    name={[name, 'amount']}
+                                    rules={[{ required: true, message: 'Amount required' }]}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <InputNumber style={{ width: '100%' }} min={0} step={0.01} precision={2} prefix="$" />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={4}>
+                                  <InputNumber
+                                    style={{ width: '100%' }}
+                                    value={adj != null ? adj : undefined}
+                                    precision={2}
+                                    prefix="$"
+                                    disabled
+                                  />
+                                </Col>
+                                <Col>
+                                  <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f' }} />
+                                </Col>
+                              </Row>
+                              <Row gutter={8} style={{ marginTop: 8 }} align="middle">
+                                <Col span={24}>
+                                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                                    Lands in
+                                  </Text>
+                                  <Space wrap size={[8, 4]} style={{ marginBottom: 6 }}>
+                                    <Tag color="blue">{destGroup}</Tag>
+                                    <Text strong style={{ fontSize: 13 }}>{destItem}</Text>
+                                    {destSrc && (
+                                      <Tag>
+                                        {destSrc === 'llm' ? 'AI match'
+                                          : destSrc === 'match' ? 'Keyword match'
+                                          : destSrc === 'misc' ? 'Miscellaneous'
+                                          : destSrc === 'manual' ? 'Manual'
+                                          : destSrc}
+                                      </Tag>
+                                    )}
+                                  </Space>
+                                  <Form.Item
+                                    {...restField}
+                                    name={[name, 'budget_item_id']}
+                                    rules={[{ required: true, message: 'Budget line required' }]}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Select
+                                      showSearch
+                                      placeholder="Change budget item"
+                                      optionFilterProp="label"
+                                      optionLabelProp="label"
+                                      options={catalogOptions.map((o) => ({
+                                        value: o.id,
+                                        label: o.label,
+                                        group: o.group,
+                                        name: o.name,
+                                      }))}
+                                      optionRender={(option) => (
+                                        <div style={{ lineHeight: 1.3 }}>
+                                          <div style={{ fontSize: 11, opacity: 0.65 }}>{option.data.group}</div>
+                                          <div>{option.data.name}</div>
+                                        </div>
+                                      )}
+                                    />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                            </div>
                             );
                           })}
                           <Space style={{ width: '100%', justifyContent: 'space-between' }}>
