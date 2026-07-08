@@ -56,6 +56,12 @@ const JT_JOB_URL = (jobId) => (jobId ? `https://app.jobtread.com/jobs/${jobId}` 
 const JT_BILL_URL = (jobId, billId) =>
   jobId && billId ? `https://app.jobtread.com/jobs/${jobId}?documentId=${billId}` : null;
 
+function roundMoney(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  return Math.round(x * 100) / 100;
+}
+
 function formatUsDateTime(value) {
   if (!value) return '—';
   const d = dayjs(value);
@@ -165,6 +171,7 @@ function ReceiptReviewWorkspace() {
   const [loadingQueue, setLoadingQueue] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const suppressTotalsSync = React.useRef(false);
 
   const loadQueue = useCallback(async () => {
     setLoadingQueue(true);
@@ -262,6 +269,7 @@ function ReceiptReviewWorkspace() {
     const ri = row.receipt_input || {};
     const assignments = row.line_assignments || ri.line_assignments || [];
     setCatalogOptions(row.catalog_options || []);
+    suppressTotalsSync.current = true;
     form.setFieldsValue({
       job_id: row.job_id,
       job_name: row.job_name,
@@ -280,7 +288,55 @@ function ReceiptReviewWorkspace() {
         budget_item_id: assignments[idx] || null,
       })),
     });
+    // Allow Ant Form to finish applying values before live sync resumes.
+    setTimeout(() => {
+      suppressTotalsSync.current = false;
+    }, 0);
   }, [form]);
+
+  const syncDerivedTotals = useCallback((changed, all) => {
+    if (suppressTotalsSync.current) return;
+    if (detail && detail.status !== 'pending') return;
+    const changedKeys = Object.keys(changed || {});
+    if (!changedKeys.length) return;
+
+    const linesTouched = changedKeys.includes('line_items');
+    const footerTouched = ['subtotal', 'discount', 'tax'].some((k) => changedKeys.includes(k));
+    const totalTouchedAlone = changedKeys.includes('total') && !linesTouched && !footerTouched;
+    if (totalTouchedAlone) return;
+
+    const lines = all.line_items || [];
+    const itemSum = roundMoney(
+      lines.reduce((s, li) => s + (Number.isFinite(Number(li?.amount)) ? Number(li.amount) : 0), 0),
+    );
+    const patch = {};
+
+    if (linesTouched) {
+      const curSub = roundMoney(all.subtotal);
+      if (Math.abs(curSub - itemSum) >= 0.005) {
+        patch.subtotal = itemSum;
+      }
+    }
+
+    const sub = Object.prototype.hasOwnProperty.call(patch, 'subtotal')
+      ? patch.subtotal
+      : roundMoney(all.subtotal != null && all.subtotal !== '' ? all.subtotal : itemSum);
+    const disc = roundMoney(all.discount);
+    const tax = roundMoney(all.tax);
+    const expectedTotal = roundMoney(sub - disc + tax);
+    const curTotal = roundMoney(all.total);
+    if ((linesTouched || footerTouched) && Math.abs(curTotal - expectedTotal) >= 0.005) {
+      patch.total = expectedTotal;
+    }
+
+    if (Object.keys(patch).length) {
+      suppressTotalsSync.current = true;
+      form.setFieldsValue(patch);
+      setTimeout(() => {
+        suppressTotalsSync.current = false;
+      }, 0);
+    }
+  }, [form, detail]);
 
   const openReceipt = useCallback(async (id) => {
     setSelectedId(id);
@@ -705,7 +761,13 @@ function ReceiptReviewWorkspace() {
                   )}
                 </Col>
                 <Col xs={24} xl={12}>
-                  <Form form={form} layout="vertical" size="middle" disabled={!isPendingDetail}>
+                  <Form
+                    form={form}
+                    layout="vertical"
+                    size="middle"
+                    disabled={!isPendingDetail}
+                    onValuesChange={syncDerivedTotals}
+                  >
                     <Form.Item name="job_id" label="Job" rules={[{ required: true, message: 'Job required' }]}>
                       <Select
                         showSearch
@@ -773,7 +835,7 @@ function ReceiptReviewWorkspace() {
                       type="info"
                       showIcon
                       style={{ marginBottom: 12 }}
-                      message="Tax & discount are absorbed into Adj total so job cost includes them. Item = receipt line; Adj = what posts."
+                      message="Live math: Item lines → Subtotal; Subtotal − Discount + Tax → Total; tax/discount spread into Adj. You can still override Total directly."
                     />
 
                     <Form.Item name="message_text" label="Slack caption / memo">
