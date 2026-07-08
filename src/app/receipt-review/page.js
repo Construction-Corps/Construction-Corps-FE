@@ -63,9 +63,10 @@ function isMiscAssignment(value) {
 
 function renderCatalogOption(option) {
   const d = option.data || {};
+  const groupLabel = d.group_path || d.group;
   return (
     <div style={{ lineHeight: 1.3 }}>
-      <div style={{ fontSize: 11, opacity: 0.65 }}>{d.group}</div>
+      <div style={{ fontSize: 11, opacity: 0.65 }}>{groupLabel}</div>
       <div>{d.name}</div>
       {d.cost_code_name && (
         <div style={{ fontSize: 11, opacity: 0.55 }}>{d.cost_code_name}</div>
@@ -657,6 +658,7 @@ function ReceiptReviewWorkspace() {
       value: o.id,
       label: o.label,
       group: o.group,
+      group_path: o.group_path,
       name: o.name,
       description: o.description,
       cost_code_name: o.cost_code_name,
