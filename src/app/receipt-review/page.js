@@ -35,6 +35,7 @@ import {
   LinkOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { useRouter, useSearchParams } from 'next/navigation';
 import ThemeSwitch from '../components/ThemeSwitch';
 import { fetchJobTread } from '@/utils/JobTreadApi';
 import {
@@ -64,10 +65,16 @@ function isMiscAssignment(value) {
 function renderCatalogOption(option) {
   const d = option.data || {};
   const groupLabel = d.group_path || d.group;
+  const action = d.budget_action === 'add' ? 'Adds to budget' : 'On budget';
   return (
     <div style={{ lineHeight: 1.3 }}>
-      <div style={{ fontSize: 11, opacity: 0.65 }}>{groupLabel}</div>
-      <div>{d.name}</div>
+      <div style={{ fontSize: 11, opacity: 0.65 }}>[{action}] {groupLabel}</div>
+      <div>{d.name}{d.budget_hint ? ` · ${d.budget_hint}` : ''}</div>
+      {d.duplicate_count > 1 && (
+        <div style={{ fontSize: 11, opacity: 0.55 }}>
+          {d.duplicate_count} identical API copies — primary row selected
+        </div>
+      )}
       {d.cost_code_name && (
         <div style={{ fontSize: 11, opacity: 0.55 }}>{d.cost_code_name}</div>
       )}
@@ -182,6 +189,8 @@ function ReceiptPreview({ images }) {
 }
 
 function ReceiptReviewWorkspace() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [form] = Form.useForm();
   const [queue, setQueue] = useState([]);
   const [completed, setCompleted] = useState([]);
@@ -193,7 +202,23 @@ function ReceiptReviewWorkspace() {
   const [loadingQueue, setLoadingQueue] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [completedCollapseKeys, setCompletedCollapseKeys] = useState([]);
   const suppressTotalsSync = React.useRef(false);
+  const restoredFromUrlRef = React.useRef(false);
+
+  const syncUrl = useCallback((updates) => {
+    const params = new URLSearchParams(window.location.search);
+    if ('id' in updates) {
+      if (updates.id != null && updates.id !== '') params.set('id', String(updates.id));
+      else params.delete('id');
+    }
+    if ('tab' in updates) {
+      if (updates.tab === 'completed') params.set('tab', 'completed');
+      else params.delete('tab');
+    }
+    const qs = params.toString();
+    router.replace(qs ? `/receipt-review?${qs}` : '/receipt-review', { scroll: false });
+  }, [router]);
 
   const loadQueue = useCallback(async () => {
     setLoadingQueue(true);
@@ -360,8 +385,12 @@ function ReceiptReviewWorkspace() {
     }
   }, [form, detail]);
 
-  const openReceipt = useCallback(async (id) => {
+  const openReceipt = useCallback(async (id, tab = 'pending') => {
     setSelectedId(id);
+    if (tab === 'completed') {
+      setCompletedCollapseKeys(['completed']);
+    }
+    syncUrl({ id, tab });
     setLoadingDetail(true);
     try {
       const row = await fetchReceiptStagingDetail(id);
@@ -373,13 +402,30 @@ function ReceiptReviewWorkspace() {
     } finally {
       setLoadingDetail(false);
     }
-  }, [applyDetailToForm]);
+  }, [applyDetailToForm, syncUrl]);
 
   useEffect(() => {
     loadQueue();
     loadJobs();
     loadVendors();
   }, [loadQueue, loadJobs, loadVendors]);
+
+  useEffect(() => {
+    if (loadingQueue || restoredFromUrlRef.current) return;
+    const urlId = searchParams.get('id');
+    const tab = searchParams.get('tab') === 'completed' ? 'completed' : 'pending';
+    if (!urlId) {
+      if (tab === 'completed') {
+        setCompletedCollapseKeys(['completed']);
+      }
+      return;
+    }
+    restoredFromUrlRef.current = true;
+    if (tab === 'completed') {
+      setCompletedCollapseKeys(['completed']);
+    }
+    openReceipt(urlId, tab);
+  }, [loadingQueue, searchParams, openReceipt]);
 
   const buildPayload = (values) => ({
     job_id: values.job_id,
@@ -520,6 +566,7 @@ function ReceiptReviewWorkspace() {
       setSelectedId(null);
       setDetail(null);
       form.resetFields();
+      syncUrl({ id: null, tab: null });
       loadQueue();
     } catch (err) {
       if (err?.errorFields) return;
@@ -538,6 +585,7 @@ function ReceiptReviewWorkspace() {
       setSelectedId(null);
       setDetail(null);
       form.resetFields();
+      syncUrl({ id: null, tab: null });
       loadQueue();
     } catch (err) {
       message.error(err.message || 'Failed to reject receipt');
@@ -649,9 +697,10 @@ function ReceiptReviewWorkspace() {
   const catalogSelectOptions = useMemo(() => [
     {
       value: MISC_ASSIGNMENT,
-      label: 'Use Miscellaneous (auto-create category bucket)',
+      label: '[Adds to budget] Use Miscellaneous (auto-create category bucket)',
       group: 'Miscellaneous',
       name: 'Auto-create from receipt line',
+      budget_action: 'add',
       is_misc: true,
     },
     ...catalogOptions.map((o) => ({
@@ -662,6 +711,9 @@ function ReceiptReviewWorkspace() {
       name: o.name,
       description: o.description,
       cost_code_name: o.cost_code_name,
+      budget_action: o.budget_action || 'reuse',
+      budget_hint: o.budget_hint,
+      duplicate_count: o.duplicate_count,
     })),
   ], [catalogOptions]);
 
@@ -689,7 +741,7 @@ function ReceiptReviewWorkspace() {
               pagination={false}
               scroll={{ y: 360 }}
               onRow={(record) => ({
-                onClick: () => openReceipt(record.id),
+                onClick: () => openReceipt(record.id, 'pending'),
                 style: {
                   cursor: 'pointer',
                   background: record.id === selectedId ? 'rgba(22, 119, 255, 0.08)' : undefined,
@@ -699,6 +751,13 @@ function ReceiptReviewWorkspace() {
           </Card>
           <Collapse
             size="small"
+            activeKey={completedCollapseKeys}
+            onChange={(keys) => {
+              const open = Array.isArray(keys) ? keys.includes('completed') : keys === 'completed';
+              const nextKeys = open ? ['completed'] : [];
+              setCompletedCollapseKeys(nextKeys);
+              syncUrl({ tab: open ? 'completed' : 'pending', id: selectedId });
+            }}
             items={[
               {
                 key: 'completed',
@@ -713,7 +772,7 @@ function ReceiptReviewWorkspace() {
                     pagination={{ pageSize: 10, size: 'small' }}
                     scroll={{ y: 280 }}
                     onRow={(record) => ({
-                      onClick: () => openReceipt(record.id),
+                      onClick: () => openReceipt(record.id, 'completed'),
                       style: {
                         cursor: 'pointer',
                         background: record.id === selectedId ? 'rgba(22, 119, 255, 0.08)' : undefined,
