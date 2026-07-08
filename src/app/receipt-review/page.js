@@ -271,11 +271,12 @@ function ReceiptReviewWorkspace() {
       total: ri.total,
       subtotal: ri.subtotal,
       tax: ri.tax,
+      discount: ri.discount != null ? Math.abs(Number(ri.discount)) : null,
       payment_method: ri.payment_method || 'Card',
       message_text: ri.message_text || row.message_text,
       line_items: (ri.line_items || []).map((li, idx) => ({
         description: li.description,
-        amount: li.amount,
+        amount: li.item_amount != null ? li.item_amount : li.amount,
         budget_item_id: assignments[idx] || null,
       })),
     });
@@ -311,15 +312,64 @@ function ReceiptReviewWorkspace() {
     total: values.total,
     subtotal: values.subtotal,
     tax: values.tax,
+    discount: values.discount != null && values.discount !== '' ? Number(values.discount) : null,
     payment_method: values.payment_method,
     payment_date: values.date ? values.date.format('YYYY-MM-DD') : null,
     message_text: values.message_text,
     line_items: (values.line_items || []).map((li) => ({
       description: li.description,
       amount: Number(li.amount),
+      item_amount: Number(li.amount),
     })),
     line_assignments: (values.line_items || []).map((li) => li.budget_item_id || null),
   });
+
+  const watchedLines = Form.useWatch('line_items', form) || [];
+  const watchedTotal = Form.useWatch('total', form);
+  const watchedTax = Form.useWatch('tax', form);
+  const watchedDiscount = Form.useWatch('discount', form);
+  const watchedSubtotal = Form.useWatch('subtotal', form);
+
+  const adjPreview = useMemo(() => {
+    const items = (watchedLines || [])
+      .map((li) => ({
+        description: li?.description,
+        amount: Number(li?.amount),
+      }))
+      .filter((li) => Number.isFinite(li.amount));
+    const itemSum = items.reduce((s, li) => s + li.amount, 0);
+    const total = Number(watchedTotal);
+    if (!Number.isFinite(total) || items.length === 0 || Math.abs(itemSum) < 0.005) {
+      return { lines: items.map((li) => ({ ...li, adj: li.amount })), itemSum, adjSum: itemSum };
+    }
+    let remaining = Math.round(total * 100) / 100;
+    const lines = items.map((li, i) => {
+      let adj;
+      if (i === items.length - 1) {
+        adj = remaining;
+      } else {
+        adj = Math.round((li.amount * total) / itemSum * 100) / 100;
+        remaining = Math.round((remaining - adj) * 100) / 100;
+      }
+      return { ...li, adj };
+    });
+    return {
+      lines,
+      itemSum: Math.round(itemSum * 100) / 100,
+      adjSum: Math.round(lines.reduce((s, li) => s + li.adj, 0) * 100) / 100,
+    };
+  }, [watchedLines, watchedTotal]);
+
+  const footerCheck = useMemo(() => {
+    const sub = Number(watchedSubtotal);
+    const tax = Number(watchedTax) || 0;
+    const disc = Number(watchedDiscount) || 0;
+    const total = Number(watchedTotal);
+    if (![sub, total].every(Number.isFinite)) return null;
+    const expected = Math.round((sub - disc + tax) * 100) / 100;
+    if (Math.abs(expected - total) < 0.02) return null;
+    return `Footer check: subtotal $${sub.toFixed(2)} − discount $${disc.toFixed(2)} + tax $${tax.toFixed(2)} = $${expected.toFixed(2)}, but total is $${total.toFixed(2)}`;
+  }, [watchedSubtotal, watchedTax, watchedDiscount, watchedTotal]);
 
   const handleJobChange = async (jobId) => {
     if (!selectedId) return;
@@ -695,22 +745,36 @@ function ReceiptReviewWorkspace() {
                     </Form.Item>
 
                     <Row gutter={8}>
-                      <Col span={8}>
+                      <Col span={6}>
                         <Form.Item name="subtotal" label="Subtotal">
                           <InputNumber style={{ width: '100%' }} min={0} step={0.01} precision={2} prefix="$" />
                         </Form.Item>
                       </Col>
-                      <Col span={8}>
+                      <Col span={6}>
+                        <Form.Item name="discount" label="Discount">
+                          <InputNumber style={{ width: '100%' }} min={0} step={0.01} precision={2} prefix="$" />
+                        </Form.Item>
+                      </Col>
+                      <Col span={6}>
                         <Form.Item name="tax" label="Tax">
                           <InputNumber style={{ width: '100%' }} min={0} step={0.01} precision={2} prefix="$" />
                         </Form.Item>
                       </Col>
-                      <Col span={8}>
+                      <Col span={6}>
                         <Form.Item name="total" label="Total" rules={[{ required: true, message: 'Total required' }]}>
                           <InputNumber style={{ width: '100%' }} min={0} step={0.01} precision={2} prefix="$" />
                         </Form.Item>
                       </Col>
                     </Row>
+                    {footerCheck && (
+                      <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={footerCheck} />
+                    )}
+                    <Alert
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 12 }}
+                      message="Tax & discount are absorbed into Adj total so job cost includes them. Item = receipt line; Adj = what posts."
+                    />
 
                     <Form.Item name="message_text" label="Slack caption / memo">
                       <TextArea rows={2} />
@@ -728,8 +792,16 @@ function ReceiptReviewWorkspace() {
                     <Form.List name="line_items">
                       {(fields, { add, remove }) => (
                         <>
+                          <Row gutter={8} style={{ marginBottom: 4, color: '#888', fontSize: 12 }}>
+                            <Col flex="auto">Description</Col>
+                            <Col span={7}>Budget</Col>
+                            <Col span={4}>Item</Col>
+                            <Col span={4}>Adj</Col>
+                            <Col style={{ width: 20 }} />
+                          </Row>
                           {fields.map(({ key, name, ...restField }) => {
                             const filing = (detail?.line_filing || [])[name];
+                            const adj = adjPreview.lines[name]?.adj;
                             return (
                             <Row gutter={8} key={key} align="middle" style={{ marginBottom: 8 }}>
                               <Col flex="auto">
@@ -760,7 +832,7 @@ function ReceiptReviewWorkspace() {
                                   />
                                 </Form.Item>
                               </Col>
-                              <Col span={5}>
+                              <Col span={4}>
                                 <Form.Item
                                   {...restField}
                                   name={[name, 'amount']}
@@ -769,6 +841,15 @@ function ReceiptReviewWorkspace() {
                                 >
                                   <InputNumber style={{ width: '100%' }} min={0} step={0.01} precision={2} prefix="$" />
                                 </Form.Item>
+                              </Col>
+                              <Col span={4}>
+                                <InputNumber
+                                  style={{ width: '100%' }}
+                                  value={adj != null ? adj : undefined}
+                                  precision={2}
+                                  prefix="$"
+                                  disabled
+                                />
                               </Col>
                               <Col>
                                 <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f' }} />
@@ -791,6 +872,10 @@ function ReceiptReviewWorkspace() {
                               Re-match budget lines
                             </Button>
                           </Space>
+                          <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                            Item sum ${Number(adjPreview.itemSum || 0).toFixed(2)} → Adj sum ${Number(adjPreview.adjSum || 0).toFixed(2)}
+                            {watchedTotal != null ? ` (total $${Number(watchedTotal).toFixed(2)})` : ''}
+                          </Text>
                         </>
                       )}
                     </Form.List>
