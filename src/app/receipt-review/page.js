@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   Col,
+  Collapse,
   DatePicker,
   Form,
   Input,
@@ -28,6 +29,10 @@ import {
   PlusOutlined,
   MinusCircleOutlined,
   ReloadOutlined,
+  ZoomInOutlined,
+  ZoomOutOutlined,
+  ExpandOutlined,
+  LinkOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ThemeSwitch from '../components/ThemeSwitch';
@@ -45,31 +50,100 @@ const { Title, Text } = Typography;
 const { TextArea } = Input;
 
 const PAYMENT_METHODS = ['Card', 'Cash', 'Check', 'ACH', 'Other'];
+const US_DATE = 'MM/DD/YYYY';
+const US_DATETIME = 'MM/DD/YYYY h:mm A';
+const JT_JOB_URL = (jobId) => (jobId ? `https://app.jobtread.com/jobs/${jobId}` : null);
+const JT_BILL_URL = (jobId, billId) =>
+  jobId && billId ? `https://app.jobtread.com/jobs/${jobId}?documentId=${billId}` : null;
+
+function formatUsDateTime(value) {
+  if (!value) return '—';
+  const d = dayjs(value);
+  return d.isValid() ? d.format(US_DATETIME) : String(value);
+}
 
 function ReceiptPreview({ images }) {
+  const [zoom, setZoom] = useState(1);
   const primary = (images || [])[0];
+
+  useEffect(() => {
+    setZoom(1);
+  }, [primary?.url]);
+
   if (!primary?.url) {
     return <Alert type="info" message="No preview available" />;
   }
   const isPdf =
     (primary.mimetype || '').includes('pdf') ||
     primary.url.toLowerCase().includes('.pdf');
+
+  const zoomControls = (
+    <Space style={{ marginBottom: 8 }}>
+      <Button
+        size="small"
+        icon={<ZoomOutOutlined />}
+        onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}
+        disabled={zoom <= 0.5}
+      />
+      <Text style={{ minWidth: 48, textAlign: 'center', display: 'inline-block' }}>
+        {Math.round(zoom * 100)}%
+      </Text>
+      <Button
+        size="small"
+        icon={<ZoomInOutlined />}
+        onClick={() => setZoom((z) => Math.min(3, Math.round((z + 0.25) * 100) / 100))}
+        disabled={zoom >= 3}
+      />
+      <Button size="small" icon={<ExpandOutlined />} onClick={() => setZoom(1)}>
+        Reset
+      </Button>
+    </Space>
+  );
+
   if (isPdf) {
     return (
-      <iframe
-        title="Receipt PDF"
-        src={primary.url}
-        style={{ width: '100%', height: '70vh', border: '1px solid #d9d9d9', borderRadius: 8 }}
-      />
+      <div>
+        {zoomControls}
+        <div style={{ overflow: 'auto', maxHeight: '70vh', border: '1px solid #d9d9d9', borderRadius: 8 }}>
+          <iframe
+            title="Receipt PDF"
+            src={primary.url}
+            style={{
+              width: `${zoom * 100}%`,
+              height: `${Math.max(70, zoom * 70)}vh`,
+              border: 'none',
+              display: 'block',
+            }}
+          />
+        </div>
+      </div>
     );
   }
   return (
-    <div style={{ textAlign: 'center' }}>
-      <img
-        alt={primary.name || 'Receipt'}
-        src={primary.url}
-        style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: 8, border: '1px solid #d9d9d9' }}
-      />
+    <div>
+      {zoomControls}
+      <div
+        style={{
+          overflow: 'auto',
+          maxHeight: '70vh',
+          textAlign: 'center',
+          border: '1px solid #d9d9d9',
+          borderRadius: 8,
+          padding: 8,
+        }}
+      >
+        <img
+          alt={primary.name || 'Receipt'}
+          src={primary.url}
+          style={{
+            width: `${zoom * 100}%`,
+            maxWidth: 'none',
+            height: 'auto',
+            display: 'block',
+            margin: '0 auto',
+          }}
+        />
+      </div>
       {(images || []).length > 1 && (
         <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
           {images.length} images attached to this receipt
@@ -82,6 +156,7 @@ function ReceiptPreview({ images }) {
 function ReceiptReviewWorkspace() {
   const [form] = Form.useForm();
   const [queue, setQueue] = useState([]);
+  const [completed, setCompleted] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [detail, setDetail] = useState(null);
   const [catalogOptions, setCatalogOptions] = useState([]);
@@ -94,8 +169,19 @@ function ReceiptReviewWorkspace() {
   const loadQueue = useCallback(async () => {
     setLoadingQueue(true);
     try {
-      const data = await fetchReceiptStagingList('pending');
-      setQueue(data.results || []);
+      const [pendingData, postedData, rejectedData] = await Promise.all([
+        fetchReceiptStagingList('pending'),
+        fetchReceiptStagingList('posted'),
+        fetchReceiptStagingList('rejected'),
+      ]);
+      setQueue(pendingData.results || []);
+      const done = [...(postedData.results || []), ...(rejectedData.results || [])];
+      done.sort((a, b) => {
+        const aTime = a.posted_at || a.created_at || '';
+        const bTime = b.posted_at || b.created_at || '';
+        return bTime.localeCompare(aTime);
+      });
+      setCompleted(done);
     } catch (err) {
       message.error(err.message || 'Failed to load receipt queue');
     } finally {
@@ -279,7 +365,30 @@ function ReceiptReviewWorkspace() {
       setSubmitting(true);
       const payload = buildPayload(values);
       const result = await postReceiptStaging(selectedId, payload);
-      message.success(`Posted bill ${result.bill_result?.bill_id || ''}`.trim());
+      const billId = result.bill_result?.bill_id || result.staging?.bill_id;
+      const jobId = result.staging?.job_id || payload.job_id;
+      const jobName = result.staging?.job_name || payload.job_name || jobId;
+      const jobUrl = result.staging?.job_url || JT_JOB_URL(jobId);
+      const billUrl = result.staging?.bill_url || JT_BILL_URL(jobId, billId);
+      message.success({
+        duration: 10,
+        content: (
+          <span>
+            Posted{billId ? ` bill ${billId}` : ''}.{' '}
+            {billUrl && (
+              <a href={billUrl} target="_blank" rel="noopener noreferrer">
+                Open bill
+              </a>
+            )}
+            {billUrl && jobUrl ? ' · ' : ''}
+            {jobUrl && (
+              <a href={jobUrl} target="_blank" rel="noopener noreferrer">
+                Open job{jobName ? ` (${jobName})` : ''}
+              </a>
+            )}
+          </span>
+        ),
+      });
       setSelectedId(null);
       setDetail(null);
       form.resetFields();
@@ -315,7 +424,7 @@ function ReceiptReviewWorkspace() {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 150,
-      render: (v) => (v ? dayjs(v).format('MMM D h:mm A') : '—'),
+      render: (v) => formatUsDateTime(v),
     },
     {
       title: 'Job',
@@ -344,7 +453,71 @@ function ReceiptReviewWorkspace() {
     },
   ], []);
 
+  const completedColumns = useMemo(() => [
+    {
+      title: 'When',
+      key: 'when',
+      width: 150,
+      render: (_, row) => formatUsDateTime(row.posted_at || row.created_at),
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      width: 90,
+      render: (v) => (
+        <Tag color={v === 'posted' ? 'green' : 'default'}>
+          {v === 'posted' ? 'Posted' : 'Rejected'}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Job',
+      dataIndex: 'job_name',
+      key: 'job_name',
+      ellipsis: true,
+    },
+    {
+      title: 'Vendor',
+      dataIndex: 'vendor',
+      key: 'vendor',
+      ellipsis: true,
+    },
+    {
+      title: 'Total',
+      dataIndex: 'total',
+      key: 'total',
+      width: 90,
+      render: (v) => (v != null ? `$${Number(v).toFixed(2)}` : '—'),
+    },
+    {
+      title: 'Links',
+      key: 'links',
+      width: 110,
+      render: (_, row) => {
+        const jobUrl = row.job_url || JT_JOB_URL(row.job_id);
+        const billUrl = row.bill_url || JT_BILL_URL(row.job_id, row.bill_id);
+        if (!jobUrl && !billUrl) return '—';
+        return (
+          <Space size={4} onClick={(e) => e.stopPropagation()}>
+            {billUrl && (
+              <a href={billUrl} target="_blank" rel="noopener noreferrer" title="Open bill">
+                Bill
+              </a>
+            )}
+            {jobUrl && (
+              <a href={jobUrl} target="_blank" rel="noopener noreferrer" title="Open job">
+                Job
+              </a>
+            )}
+          </Space>
+        );
+      },
+    },
+  ], []);
+
   const vendorOptions = vendors.map((v) => ({ value: v.name, label: v.name }));
+  const isPendingDetail = detail?.status === 'pending';
 
   return (
     <div style={{ padding: 24, maxWidth: 1600, margin: '0 auto' }}>
@@ -360,7 +533,7 @@ function ReceiptReviewWorkspace() {
 
       <Row gutter={16}>
         <Col xs={24} lg={8}>
-          <Card title={`Pending (${queue.length})`} size="small">
+          <Card title={`Pending (${queue.length})`} size="small" style={{ marginBottom: 12 }}>
             <Table
               rowKey="id"
               size="small"
@@ -368,7 +541,7 @@ function ReceiptReviewWorkspace() {
               dataSource={queue}
               columns={columns}
               pagination={false}
-              scroll={{ y: 520 }}
+              scroll={{ y: 360 }}
               onRow={(record) => ({
                 onClick: () => openReceipt(record.id),
                 style: {
@@ -378,6 +551,33 @@ function ReceiptReviewWorkspace() {
               })}
             />
           </Card>
+          <Collapse
+            size="small"
+            items={[
+              {
+                key: 'completed',
+                label: `Completed (${completed.length})`,
+                children: (
+                  <Table
+                    rowKey="id"
+                    size="small"
+                    loading={loadingQueue}
+                    dataSource={completed}
+                    columns={completedColumns}
+                    pagination={{ pageSize: 10, size: 'small' }}
+                    scroll={{ y: 280 }}
+                    onRow={(record) => ({
+                      onClick: () => openReceipt(record.id),
+                      style: {
+                        cursor: 'pointer',
+                        background: record.id === selectedId ? 'rgba(22, 119, 255, 0.08)' : undefined,
+                      },
+                    })}
+                  />
+                ),
+              },
+            ]}
+          />
         </Col>
 
         <Col xs={24} lg={16}>
@@ -385,7 +585,7 @@ function ReceiptReviewWorkspace() {
             title={selectedId ? `Review #${selectedId}` : 'Select a receipt'}
             size="small"
             extra={
-              selectedId && detail?.status === 'pending' ? (
+              selectedId && isPendingDetail ? (
                 <Space>
                   <Button danger icon={<CloseOutlined />} onClick={handleReject} disabled={submitting}>
                     Reject
@@ -419,9 +619,43 @@ function ReceiptReviewWorkspace() {
                       {detail.message_text ? ` — ${detail.message_text}` : ''}
                     </Text>
                   )}
+                  {detail?.status && detail.status !== 'pending' && (
+                    <Alert
+                      style={{ marginTop: 12 }}
+                      type={detail.status === 'posted' ? 'success' : 'warning'}
+                      showIcon
+                      message={
+                        detail.status === 'posted'
+                          ? `Posted ${formatUsDateTime(detail.posted_at)}`
+                          : 'Rejected'
+                      }
+                      description={
+                        <Space direction="vertical" size={4}>
+                          {(detail.bill_url || JT_BILL_URL(detail.job_id, detail.bill_id || detail.bill_result?.bill_id)) && (
+                            <a
+                              href={detail.bill_url || JT_BILL_URL(detail.job_id, detail.bill_id || detail.bill_result?.bill_id)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <LinkOutlined /> Open bill in JobTread
+                            </a>
+                          )}
+                          {(detail.job_url || JT_JOB_URL(detail.job_id)) && (
+                            <a
+                              href={detail.job_url || JT_JOB_URL(detail.job_id)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <LinkOutlined /> Open job in JobTread
+                            </a>
+                          )}
+                        </Space>
+                      }
+                    />
+                  )}
                 </Col>
                 <Col xs={24} xl={12}>
-                  <Form form={form} layout="vertical" size="middle">
+                  <Form form={form} layout="vertical" size="middle" disabled={!isPendingDetail}>
                     <Form.Item name="job_id" label="Job" rules={[{ required: true, message: 'Job required' }]}>
                       <Select
                         showSearch
@@ -446,7 +680,7 @@ function ReceiptReviewWorkspace() {
                     <Row gutter={8}>
                       <Col span={12}>
                         <Form.Item name="date" label="Receipt date">
-                          <DatePicker style={{ width: '100%' }} />
+                          <DatePicker style={{ width: '100%' }} format={US_DATE} />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
@@ -550,10 +784,10 @@ function ReceiptReviewWorkspace() {
                             );
                           })}
                           <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                            <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />}>
+                            <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />} disabled={!isPendingDetail}>
                               Add line item
                             </Button>
-                            <Button onClick={handleReclassify} disabled={submitting}>
+                            <Button onClick={handleReclassify} disabled={submitting || !isPendingDetail}>
                               Re-match budget lines
                             </Button>
                           </Space>
