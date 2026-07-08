@@ -55,6 +55,27 @@ const US_DATETIME = 'MM/DD/YYYY h:mm A';
 const JT_JOB_URL = (jobId) => (jobId ? `https://app.jobtread.com/jobs/${jobId}` : null);
 const JT_BILL_URL = (jobId, billId) =>
   jobId && billId ? `https://app.jobtread.com/jobs/${jobId}/documents/${billId}` : null;
+const MISC_ASSIGNMENT = '__use_misc__';
+
+function isMiscAssignment(value) {
+  return value === MISC_ASSIGNMENT;
+}
+
+function renderCatalogOption(option) {
+  const d = option.data || {};
+  return (
+    <div style={{ lineHeight: 1.3 }}>
+      <div style={{ fontSize: 11, opacity: 0.65 }}>{d.group}</div>
+      <div>{d.name}</div>
+      {d.cost_code_name && (
+        <div style={{ fontSize: 11, opacity: 0.55 }}>{d.cost_code_name}</div>
+      )}
+      {d.description && (
+        <div style={{ fontSize: 11, opacity: 0.55 }}>{d.description}</div>
+      )}
+    </div>
+  );
+}
 
 function roundMoney(n) {
   const x = Number(n);
@@ -624,6 +645,23 @@ function ReceiptReviewWorkspace() {
 
   const vendorOptions = vendors.map((v) => ({ value: v.name, label: v.name }));
   const isPendingDetail = detail?.status === 'pending';
+  const catalogSelectOptions = useMemo(() => [
+    {
+      value: MISC_ASSIGNMENT,
+      label: 'Use Miscellaneous (auto-create category bucket)',
+      group: 'Miscellaneous',
+      name: 'Auto-create from receipt line',
+      is_misc: true,
+    },
+    ...catalogOptions.map((o) => ({
+      value: o.id,
+      label: o.label,
+      group: o.group,
+      name: o.name,
+      description: o.description,
+      cost_code_name: o.cost_code_name,
+    })),
+  ], [catalogOptions]);
 
   return (
     <div style={{ padding: 24, maxWidth: 1600, margin: '0 auto' }}>
@@ -864,10 +902,15 @@ function ReceiptReviewWorkspace() {
                             const filing = (detail?.line_filing || [])[name];
                             const adj = adjPreview.lines[name]?.adj;
                             const selectedId = watchedLines?.[name]?.budget_item_id;
+                            const isMiscPick = isMiscAssignment(selectedId);
                             const selectedOpt = catalogOptions.find((o) => o.id === selectedId);
-                            const destGroup = selectedOpt?.group || filing?.group || '—';
-                            const destItem = selectedOpt?.name || filing?.item || '—';
-                            const destSrc = filing?.src || (selectedId ? 'manual' : null);
+                            const destGroup = isMiscPick ? 'Miscellaneous' : (selectedOpt?.group || filing?.group || '—');
+                            const destItem = isMiscPick
+                              ? '(auto-create category bucket on post)'
+                              : (selectedOpt?.name || filing?.item || '—');
+                            const destSrc = isMiscPick
+                              ? 'misc(explicit)'
+                              : (filing?.src || (selectedId ? 'manual' : null));
                             return (
                             <div
                               key={key}
@@ -921,11 +964,11 @@ function ReceiptReviewWorkspace() {
                                   <Space wrap size={[8, 4]} style={{ marginBottom: 6 }}>
                                     <Tag color="blue">{destGroup}</Tag>
                                     <Text strong style={{ fontSize: 13 }}>{destItem}</Text>
-                                    {destSrc && (
+                                        {destSrc && (
                                       <Tag>
                                         {destSrc === 'llm' ? 'AI match'
                                           : destSrc === 'match' ? 'Keyword match'
-                                          : destSrc === 'misc' ? 'Miscellaneous'
+                                          : destSrc === 'misc' || destSrc === 'misc(explicit)' ? 'Miscellaneous'
                                           : destSrc === 'manual' ? 'Manual'
                                           : destSrc}
                                       </Tag>
@@ -934,7 +977,13 @@ function ReceiptReviewWorkspace() {
                                   <Form.Item
                                     {...restField}
                                     name={[name, 'budget_item_id']}
-                                    rules={[{ required: true, message: 'Budget line required' }]}
+                                    rules={[{
+                                      validator: (_, value) => (
+                                        isMiscAssignment(value) || value
+                                          ? Promise.resolve()
+                                          : Promise.reject(new Error('Budget line required'))
+                                      ),
+                                    }]}
                                     style={{ marginBottom: 0 }}
                                   >
                                     <Select
@@ -942,18 +991,8 @@ function ReceiptReviewWorkspace() {
                                       placeholder="Change budget item"
                                       optionFilterProp="label"
                                       optionLabelProp="label"
-                                      options={catalogOptions.map((o) => ({
-                                        value: o.id,
-                                        label: o.label,
-                                        group: o.group,
-                                        name: o.name,
-                                      }))}
-                                      optionRender={(option) => (
-                                        <div style={{ lineHeight: 1.3 }}>
-                                          <div style={{ fontSize: 11, opacity: 0.65 }}>{option.data.group}</div>
-                                          <div>{option.data.name}</div>
-                                        </div>
-                                      )}
+                                      options={catalogSelectOptions}
+                                      optionRender={renderCatalogOption}
                                     />
                                   </Form.Item>
                                 </Col>
