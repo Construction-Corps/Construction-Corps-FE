@@ -17,6 +17,7 @@ import {
   Select,
   Space,
   Spin,
+  Switch,
   Table,
   Tag,
   Typography,
@@ -44,6 +45,8 @@ import {
   postReceiptStaging,
   rejectReceiptStaging,
   reclassifyReceiptStaging,
+  fetchReceiptReviewSettings,
+  updateReceiptReviewSettings,
 } from '@/utils/ReceiptStagingApi';
 
 const { Content } = Layout;
@@ -216,8 +219,27 @@ function ReceiptReviewWorkspace() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [completedCollapseKeys, setCompletedCollapseKeys] = useState([]);
+  const [autoPost, setAutoPost] = useState(false);
+  const [autoPostSaving, setAutoPostSaving] = useState(false);
   const suppressTotalsSync = React.useRef(false);
   const restoredFromUrlRef = React.useRef(false);
+
+  const handleAutoPostChange = async (checked) => {
+    setAutoPostSaving(true);
+    try {
+      const settings = await updateReceiptReviewSettings({ auto_post: checked });
+      setAutoPost(Boolean(settings.auto_post));
+      message.success(
+        settings.auto_post
+          ? 'Auto-post on — new receipts post without clicking Post'
+          : 'Auto-post off — receipts wait for review',
+      );
+    } catch (err) {
+      message.error(err.message || 'Failed to update auto-post');
+    } finally {
+      setAutoPostSaving(false);
+    }
+  };
 
   const syncUrl = useCallback((updates) => {
     const params = new URLSearchParams(window.location.search);
@@ -236,10 +258,11 @@ function ReceiptReviewWorkspace() {
   const loadQueue = useCallback(async () => {
     setLoadingQueue(true);
     try {
-      const [pendingData, postedData, rejectedData] = await Promise.all([
+      const [pendingData, postedData, rejectedData, settings] = await Promise.all([
         fetchReceiptStagingList('pending'),
         fetchReceiptStagingList('posted'),
         fetchReceiptStagingList('rejected'),
+        fetchReceiptReviewSettings().catch(() => null),
       ]);
       setQueue(pendingData.results || []);
       const done = [...(postedData.results || []), ...(rejectedData.results || [])];
@@ -249,6 +272,9 @@ function ReceiptReviewWorkspace() {
         return bTime.localeCompare(aTime);
       });
       setCompleted(done);
+      if (settings && typeof settings.auto_post === 'boolean') {
+        setAutoPost(settings.auto_post);
+      }
     } catch (err) {
       message.error(err.message || 'Failed to load receipt queue');
     } finally {
@@ -737,10 +763,31 @@ function ReceiptReviewWorkspace() {
           <Title level={3} style={{ margin: 0 }}>Receipt Review</Title>
           <Text type="secondary">Review OCR + budget coding suggestions, edit, then post bill + payment</Text>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={loadQueue} loading={loadingQueue}>
-          Refresh
-        </Button>
+        <Space>
+          <Space size={8}>
+            <Text type="secondary">Auto-post</Text>
+            <Switch
+              checked={autoPost}
+              loading={autoPostSaving}
+              onChange={handleAutoPostChange}
+              checkedChildren="On"
+              unCheckedChildren="Off"
+            />
+          </Space>
+          <Button icon={<ReloadOutlined />} onClick={loadQueue} loading={loadingQueue}>
+            Refresh
+          </Button>
+        </Space>
       </Space>
+
+      {autoPost && (
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Auto-post is on — new Slack receipts post to JobTread without the Post button. They still appear under Completed."
+        />
+      )}
 
       <Row gutter={16}>
         <Col xs={24} lg={8}>

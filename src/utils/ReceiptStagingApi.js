@@ -72,3 +72,19 @@ export const reclassifyReceiptStaging = async (id, payload = {}) => {
   });
   return _handleResponse(response);
 };
+
+export const fetchReceiptReviewSettings = async () => {
+  const response = await fetch(`${API_ROOT}/api/receipts/settings/`, {
+    headers: _authHeaders(),
+  });
+  return _handleResponse(response);
+};
+
+export const updateReceiptReviewSettings = async (payload) => {
+  const response = await fetch(`${API_ROOT}/api/receipts/settings/`, {
+    method: 'PATCH',
+    headers: _authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return _handleResponse(response);
+};
