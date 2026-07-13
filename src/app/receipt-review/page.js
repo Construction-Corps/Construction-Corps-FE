@@ -566,7 +566,13 @@ function ReceiptReviewWorkspace() {
       applyDetailToForm(row);
       message.success('Budget suggestions updated');
     } catch (err) {
-      if (err?.errorFields) return;
+      if (err?.errorFields) {
+        const first = err.errorFields[0];
+        const fieldMsg = first?.errors?.[0] || 'Fix required fields before continuing';
+        message.error(fieldMsg);
+        if (first?.name) form.scrollToField(first.name);
+        return;
+      }
       message.error(err.message || 'Failed to reclassify lines');
     } finally {
       setSubmitting(false);
@@ -610,7 +616,13 @@ function ReceiptReviewWorkspace() {
       syncUrl({ id: null, tab: null });
       loadQueue();
     } catch (err) {
-      if (err?.errorFields) return;
+      if (err?.errorFields) {
+        const first = err.errorFields[0];
+        const fieldMsg = first?.errors?.[0] || 'Fix required fields before posting';
+        message.error(fieldMsg);
+        if (first?.name) form.scrollToField(first.name);
+        return;
+      }
       message.error(err.message || 'Failed to post receipt');
     } finally {
       setSubmitting(false);
@@ -980,6 +992,7 @@ function ReceiptReviewWorkspace() {
                     size="middle"
                     disabled={!isPendingDetail}
                     onValuesChange={syncDerivedTotals}
+                    scrollToFirstError
                   >
                     <Form.Item name="job_id" label="Job" rules={[{ required: true, message: 'Job required' }]}>
                       <Select
