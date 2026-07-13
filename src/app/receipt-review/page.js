@@ -23,6 +23,7 @@ import {
   Typography,
   message,
   Divider,
+  Modal,
 } from 'antd';
 import {
   CheckOutlined,
@@ -43,6 +44,7 @@ import {
   fetchReceiptStagingList,
   fetchReceiptStagingDetail,
   postReceiptStaging,
+  undoReceiptStaging,
   rejectReceiptStaging,
   reclassifyReceiptStaging,
   fetchReceiptReviewSettings,
@@ -633,6 +635,46 @@ function ReceiptReviewWorkspace() {
     }
   };
 
+  const handleUndo = () => {
+    if (!selectedId) return;
+    const billId = detail?.bill_id || detail?.bill_result?.bill_id;
+    Modal.confirm({
+      title: 'Undo this JobTread bill?',
+      content: (
+        <div>
+          <p>
+            This permanently deletes the payment, bill
+            {billId ? ` (${billId})` : ''}, attached receipt files, and any
+            budget items this post created. Existing budget lines that were only
+            reused stay. The review returns to Pending so you can fix and re-post.
+          </p>
+        </div>
+      ),
+      okText: 'Delete payment + bill',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        setSubmitting(true);
+        try {
+          const result = await undoReceiptStaging(selectedId);
+          message.success('Undone — bill removed; review is pending again');
+          const row = result.staging;
+          setDetail(row);
+          if (row?.status === 'pending') {
+            applyDetailToForm(row);
+            syncUrl({ id: row.id, tab: 'pending' });
+          }
+          loadQueue();
+        } catch (err) {
+          message.error(err.message || 'Failed to undo');
+          throw err;
+        } finally {
+          setSubmitting(false);
+        }
+      },
+    });
+  };
+
   const columns = useMemo(() => [
     {
       title: 'When',
@@ -733,6 +775,9 @@ function ReceiptReviewWorkspace() {
 
   const vendorOptions = vendors.map((v) => ({ value: v.name, label: v.name }));
   const isPendingDetail = detail?.status === 'pending';
+  const canUndoBill = Boolean(
+    selectedId && (detail?.bill_id || detail?.bill_result?.bill_id),
+  );
   const catalogSelectOptions = useMemo(() => [
     {
       value: MISC_ASSIGNMENT,
@@ -850,14 +895,23 @@ function ReceiptReviewWorkspace() {
             title={selectedId ? `Review #${selectedId}` : 'Select a receipt'}
             size="small"
             extra={
-              selectedId && isPendingDetail ? (
+              selectedId ? (
                 <Space>
-                  <Button danger icon={<CloseOutlined />} onClick={handleReject} disabled={submitting}>
-                    Reject
-                  </Button>
-                  <Button type="primary" icon={<CheckOutlined />} onClick={handlePost} loading={submitting}>
-                    Post Bill + Pay
-                  </Button>
+                  {canUndoBill && (
+                    <Button danger onClick={handleUndo} disabled={submitting} loading={submitting}>
+                      Undo bill
+                    </Button>
+                  )}
+                  {isPendingDetail && (
+                    <>
+                      <Button danger icon={<CloseOutlined />} onClick={handleReject} disabled={submitting}>
+                        Reject
+                      </Button>
+                      <Button type="primary" icon={<CheckOutlined />} onClick={handlePost} loading={submitting}>
+                        Post Bill + Pay
+                      </Button>
+                    </>
+                  )}
                 </Space>
               ) : null
             }

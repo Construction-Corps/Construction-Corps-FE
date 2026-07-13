@@ -55,6 +55,21 @@ export const postReceiptStaging = async (id, payload = null) => {
   return data;
 };
 
+export const undoReceiptStaging = async (id) => {
+  const response = await fetch(`${API_ROOT}/api/receipts/staging/${id}/undo/`, {
+    method: 'POST',
+    headers: _authHeaders(),
+    body: '{}',
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const err = new Error(data.error || data.result?.reason || `Undo failed (${response.status})`);
+    err.data = data;
+    throw err;
+  }
+  return data;
+};
+
 export const rejectReceiptStaging = async (id) => {
   const response = await fetch(`${API_ROOT}/api/receipts/staging/${id}/reject/`, {
     method: 'POST',
