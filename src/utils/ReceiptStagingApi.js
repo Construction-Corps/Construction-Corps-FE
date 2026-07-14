@@ -1,10 +1,24 @@
 const API_ROOT = (process.env.NEXT_PUBLIC_API_BASE_URL || 'https://ccbe.onrender.com').replace(/\/$/, '');
 
+const _reviewerEmail = () => {
+  if (typeof localStorage === 'undefined') return '';
+  try {
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    return user?.email || '';
+  } catch {
+    return '';
+  }
+};
+
 const _authHeaders = () => {
   const headers = { 'Content-Type': 'application/json' };
   const authToken = typeof localStorage !== 'undefined' ? localStorage.getItem('authToken') : null;
   if (authToken) {
     headers.Authorization = `Token ${authToken}`;
+  }
+  const reviewer = _reviewerEmail();
+  if (reviewer) {
+    headers['X-CC-Reviewer'] = reviewer;
   }
   return headers;
 };
@@ -49,6 +63,7 @@ export const postReceiptStaging = async (id, payload = null) => {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const err = new Error(data.error || data.bill_result?.reason || `Post failed (${response.status})`);
+    err.status = response.status;
     err.data = data;
     throw err;
   }
@@ -84,6 +99,15 @@ export const reclassifyReceiptStaging = async (id, payload = {}) => {
     method: 'POST',
     headers: _authHeaders(),
     body: JSON.stringify(payload),
+  });
+  return _handleResponse(response);
+};
+
+export const mergeReceiptStaging = async (id, mergeIds) => {
+  const response = await fetch(`${API_ROOT}/api/receipts/staging/${id}/merge/`, {
+    method: 'POST',
+    headers: _authHeaders(),
+    body: JSON.stringify({ merge_ids: mergeIds }),
   });
   return _handleResponse(response);
 };

@@ -35,7 +35,9 @@ import {
   ZoomInOutlined,
   ZoomOutOutlined,
   ExpandOutlined,
-  LinkOutlined,
+  MergeCellsOutlined,
+  LeftOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -48,6 +50,7 @@ import {
   undoReceiptStaging,
   rejectReceiptStaging,
   reclassifyReceiptStaging,
+  mergeReceiptStaging,
   fetchReceiptReviewSettings,
   updateReceiptReviewSettings,
 } from '@/utils/ReceiptStagingApi';
@@ -63,6 +66,16 @@ const JT_JOB_URL = (jobId) => (jobId ? `https://app.jobtread.com/jobs/${jobId}` 
 const JT_BILL_URL = (jobId, billId) =>
   jobId && billId ? `https://app.jobtread.com/jobs/${jobId}/documents/${billId}` : null;
 const MISC_ASSIGNMENT = '__use_misc__';
+
+function currentReviewerEmail() {
+  if (typeof localStorage === 'undefined') return '';
+  try {
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    return user?.email || '';
+  } catch {
+    return '';
+  }
+}
 
 function isMiscAssignment(value) {
   return value === MISC_ASSIGNMENT;
@@ -118,9 +131,15 @@ function formatUsDateTime(value) {
 
 function ReceiptPreview({ images }) {
   const [zoom, setZoom] = useState(1);
-  const primary = (images || [])[0];
+  const [imageIndex, setImageIndex] = useState(0);
+  const imgs = images || [];
+  const primary = imgs[imageIndex] || imgs[0];
   const frameRef = useRef(null);
   const panRef = useRef({ active: false, x: 0, y: 0, left: 0, top: 0 });
+
+  useEffect(() => {
+    setImageIndex(0);
+  }, [images]);
 
   useEffect(() => {
     setZoom(1);
@@ -288,10 +307,24 @@ function ReceiptPreview({ images }) {
           }}
         />
       </div>
-      {(images || []).length > 1 && (
-        <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-          {images.length} images attached to this receipt
-        </Text>
+      {(imgs || []).length > 1 && (
+        <Space style={{ marginTop: 8 }} wrap>
+          <Button
+            size="small"
+            icon={<LeftOutlined />}
+            disabled={imageIndex <= 0}
+            onClick={() => setImageIndex((i) => Math.max(0, i - 1))}
+          />
+          <Text type="secondary">
+            Page {imageIndex + 1} of {imgs.length}
+          </Text>
+          <Button
+            size="small"
+            icon={<RightOutlined />}
+            disabled={imageIndex >= imgs.length - 1}
+            onClick={() => setImageIndex((i) => Math.min(imgs.length - 1, i + 1))}
+          />
+        </Space>
       )}
     </div>
   );
@@ -314,6 +347,8 @@ function ReceiptReviewWorkspace() {
   const [completedCollapseKeys, setCompletedCollapseKeys] = useState([]);
   const [autoPost, setAutoPost] = useState(false);
   const [autoPostSaving, setAutoPostSaving] = useState(false);
+  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  const [mergeSelectedIds, setMergeSelectedIds] = useState([]);
   const suppressTotalsSync = React.useRef(false);
   const restoredFromUrlRef = React.useRef(false);
 
@@ -559,6 +594,25 @@ function ReceiptReviewWorkspace() {
     openReceipt(urlId, tab);
   }, [loadingQueue, searchParams, openReceipt]);
 
+  useEffect(() => {
+    if (!selectedId || !detail?.posting_in_progress) return undefined;
+    const timer = setInterval(async () => {
+      try {
+        const row = await fetchReceiptStagingDetail(selectedId);
+        setDetail(row);
+        if (!row.posting_in_progress && row.status === 'pending') {
+          applyDetailToForm(row);
+        }
+        if (!row.posting_in_progress && row.status !== 'pending') {
+          loadQueue();
+        }
+      } catch {
+        /* ignore poll errors */
+      }
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [selectedId, detail?.posting_in_progress, applyDetailToForm, loadQueue]);
+
   const buildPayload = (values) => ({
     job_id: values.job_id,
     job_name: jobs.find((j) => j.id === values.job_id)?.name || values.job_name || '',
@@ -672,6 +726,11 @@ function ReceiptReviewWorkspace() {
 
   const handlePost = async () => {
     if (!selectedId) return;
+    if (detail?.posting_in_progress) {
+      const by = detail.posting_by || 'another user';
+      message.warning(`Already being posted by ${by}`);
+      return;
+    }
     try {
       const values = await form.validateFields();
       setSubmitting(true);
@@ -682,6 +741,13 @@ function ReceiptReviewWorkspace() {
       const jobName = result.staging?.job_name || payload.job_name || jobId;
       const jobUrl = result.staging?.job_url || JT_JOB_URL(jobId);
       const billUrl = result.staging?.bill_url || JT_BILL_URL(jobId, billId);
+      const row = result.staging;
+      if (row) {
+        setDetail(row);
+        applyDetailToForm(row);
+      }
+      setCompletedCollapseKeys(['completed']);
+      syncUrl({ id: selectedId, tab: 'completed' });
       message.success({
         duration: 10,
         content: (
@@ -701,10 +767,6 @@ function ReceiptReviewWorkspace() {
           </span>
         ),
       });
-      setSelectedId(null);
-      setDetail(null);
-      form.resetFields();
-      syncUrl({ id: null, tab: null });
       loadQueue();
     } catch (err) {
       if (err?.errorFields) {
@@ -712,6 +774,17 @@ function ReceiptReviewWorkspace() {
         const fieldMsg = first?.errors?.[0] || 'Fix required fields before posting';
         message.error(fieldMsg);
         if (first?.name) form.scrollToField(first.name);
+        return;
+      }
+      if (err?.status === 409) {
+        message.error(err.message || 'Another user is already posting this receipt');
+        try {
+          const row = await fetchReceiptStagingDetail(selectedId);
+          setDetail(row);
+        } catch {
+          /* ignore */
+        }
+        loadQueue();
         return;
       }
       message.error(err.message || 'Failed to post receipt');
@@ -738,8 +811,42 @@ function ReceiptReviewWorkspace() {
     }
   };
 
+  const mergeCandidates = useMemo(() => {
+    if (!selectedId || !detail?.job_id) return [];
+    return queue.filter(
+      (row) => row.id !== selectedId && String(row.job_id) === String(detail.job_id),
+    );
+  }, [queue, selectedId, detail?.job_id]);
+
+  const openMergeModal = () => {
+    setMergeSelectedIds([]);
+    setMergeModalOpen(true);
+  };
+
+  const handleMerge = async () => {
+    if (!selectedId || !mergeSelectedIds.length) return;
+    setSubmitting(true);
+    try {
+      const result = await mergeReceiptStaging(selectedId, mergeSelectedIds);
+      const row = result.staging || result;
+      setDetail(row);
+      applyDetailToForm(row);
+      setMergeModalOpen(false);
+      setMergeSelectedIds([]);
+      message.success(
+        `Merged ${result.merge?.merged_count ?? mergeSelectedIds.length} receipt(s) — re-OCR complete`,
+        6,
+      );
+      loadQueue();
+    } catch (err) {
+      message.error(err.message || 'Failed to merge receipts');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleUndo = () => {
-    if (!selectedId) return;
+    if (!selectedId || detail?.status !== 'posted') return;
     const billId = detail?.bill_id || detail?.bill_result?.bill_id;
     Modal.confirm({
       title: 'Undo this JobTread bill?',
@@ -791,6 +898,12 @@ function ReceiptReviewWorkspace() {
       dataIndex: 'job_name',
       key: 'job_name',
       ellipsis: true,
+      render: (v, row) => (
+        <Space size={4}>
+          <span>{v}</span>
+          {row.posting_in_progress && <Tag color="processing">Posting</Tag>}
+        </Space>
+      ),
     },
     {
       title: 'Vendor',
@@ -878,8 +991,11 @@ function ReceiptReviewWorkspace() {
 
   const vendorOptions = vendors.map((v) => ({ value: v.name, label: v.name }));
   const isPendingDetail = detail?.status === 'pending';
+  const isPostingLocked = Boolean(detail?.posting_in_progress);
   const canUndoBill = Boolean(
-    selectedId && (detail?.bill_id || detail?.bill_result?.bill_id),
+    selectedId
+    && detail?.status === 'posted'
+    && (detail?.bill_id || detail?.bill_result?.bill_id),
   );
   const catalogSelectOptions = useMemo(() => [
     {
@@ -1007,10 +1123,28 @@ function ReceiptReviewWorkspace() {
                   )}
                   {isPendingDetail && (
                     <>
-                      <Button danger icon={<CloseOutlined />} onClick={handleReject} disabled={submitting}>
+                      <Button
+                        icon={<MergeCellsOutlined />}
+                        onClick={openMergeModal}
+                        disabled={submitting || isPostingLocked || !mergeCandidates.length}
+                        title={
+                          mergeCandidates.length
+                            ? 'Combine another pending receipt as extra page(s)'
+                            : 'No other pending receipts on this job'
+                        }
+                      >
+                        Merge pages
+                      </Button>
+                      <Button danger icon={<CloseOutlined />} onClick={handleReject} disabled={submitting || isPostingLocked}>
                         Reject
                       </Button>
-                      <Button type="primary" icon={<CheckOutlined />} onClick={handlePost} loading={submitting}>
+                      <Button
+                        type="primary"
+                        icon={<CheckOutlined />}
+                        onClick={handlePost}
+                        loading={submitting}
+                        disabled={isPostingLocked}
+                      >
                         Post Bill + Pay
                       </Button>
                     </>
@@ -1040,6 +1174,19 @@ function ReceiptReviewWorkspace() {
                       Slack: {detail.sender_name}
                       {detail.message_text ? ` — ${detail.message_text}` : ''}
                     </Text>
+                  )}
+                  {isPostingLocked && (
+                    <Alert
+                      style={{ marginTop: 12 }}
+                      type="warning"
+                      showIcon
+                      message="Posting in progress"
+                      description={
+                        detail.posting_by
+                          ? `${detail.posting_by} is posting this receipt to JobTread. This page refreshes automatically.`
+                          : 'Another reviewer is posting this receipt. This page refreshes automatically.'
+                      }
+                    />
                   )}
                   {detail?.status && detail.status !== 'pending' && (
                     <Alert
@@ -1081,7 +1228,7 @@ function ReceiptReviewWorkspace() {
                     form={form}
                     layout="vertical"
                     size="middle"
-                    disabled={!isPendingDetail}
+                    disabled={!isPendingDetail || isPostingLocked}
                     onValuesChange={syncDerivedTotals}
                     scrollToFirstError
                   >
@@ -1282,10 +1429,10 @@ function ReceiptReviewWorkspace() {
                             );
                           })}
                           <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                            <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />} disabled={!isPendingDetail}>
+                            <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />} disabled={!isPendingDetail || isPostingLocked}>
                               Add line item
                             </Button>
-                            <Button onClick={handleReclassify} disabled={submitting || !isPendingDetail}>
+                            <Button onClick={handleReclassify} disabled={submitting || !isPendingDetail || isPostingLocked}>
                               Re-match budget lines
                             </Button>
                           </Space>
@@ -1303,6 +1450,43 @@ function ReceiptReviewWorkspace() {
           </Card>
         </Col>
       </Row>
+
+      <Modal
+        title="Merge receipt pages"
+        open={mergeModalOpen}
+        onCancel={() => {
+          if (!submitting) {
+            setMergeModalOpen(false);
+            setMergeSelectedIds([]);
+          }
+        }}
+        onOk={handleMerge}
+        okText="Merge & re-OCR"
+        confirmLoading={submitting}
+        okButtonProps={{ disabled: !mergeSelectedIds.length }}
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Use when Slack split one purchase into multiple pending rows (multi-page receipt). Selected rows are merged into this review, OCR runs again on all images, and the sources are removed from the queue."
+        />
+        <Text strong style={{ display: 'block', marginBottom: 8 }}>
+          Add pages from (same job):
+        </Text>
+        <Select
+          mode="multiple"
+          style={{ width: '100%' }}
+          placeholder={mergeCandidates.length ? 'Select pending receipt(s)' : 'No other pending receipts on this job'}
+          value={mergeSelectedIds}
+          onChange={setMergeSelectedIds}
+          disabled={!mergeCandidates.length}
+          options={mergeCandidates.map((row) => ({
+            value: row.id,
+            label: `#${row.id} · ${row.vendor || '—'} · $${row.total != null ? Number(row.total).toFixed(2) : '—'} · ${formatUsDateTime(row.created_at)}`,
+          }))}
+        />
+      </Modal>
     </div>
   );
 }
