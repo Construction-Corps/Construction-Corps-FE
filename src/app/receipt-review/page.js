@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AutoComplete,
@@ -24,6 +24,7 @@ import {
   message,
   Divider,
   Modal,
+  Slider,
 } from 'antd';
 import {
   CheckOutlined,
@@ -118,10 +119,68 @@ function formatUsDateTime(value) {
 function ReceiptPreview({ images }) {
   const [zoom, setZoom] = useState(1);
   const primary = (images || [])[0];
+  const frameRef = useRef(null);
+  const panRef = useRef({ active: false, x: 0, y: 0, left: 0, top: 0 });
 
   useEffect(() => {
     setZoom(1);
   }, [primary?.url]);
+
+  const clampZoom = useCallback((z) => Math.min(3, Math.max(0.5, Math.round(z * 100) / 100)), []);
+
+  const onWheelZoom = useCallback(
+    (e) => {
+      // Shift+wheel pans vertically so zoomed images stay movable without the scrollbar.
+      if (e.shiftKey) {
+        e.preventDefault();
+        const el = frameRef.current;
+        if (!el) return;
+        el.scrollLeft += e.deltaY;
+        el.scrollTop += e.deltaX;
+        return;
+      }
+      e.preventDefault();
+      const step = e.deltaY > 0 ? -0.1 : 0.1;
+      setZoom((z) => clampZoom(z + step));
+    },
+    [clampZoom],
+  );
+
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el) return undefined;
+    el.addEventListener('wheel', onWheelZoom, { passive: false });
+    return () => el.removeEventListener('wheel', onWheelZoom);
+  }, [onWheelZoom, primary?.url]);
+
+  const onPanStart = useCallback((e) => {
+    if (e.button !== 0) return;
+    const el = frameRef.current;
+    if (!el) return;
+    panRef.current = {
+      active: true,
+      x: e.clientX,
+      y: e.clientY,
+      left: el.scrollLeft,
+      top: el.scrollTop,
+    };
+    el.style.cursor = 'grabbing';
+    e.preventDefault();
+  }, []);
+
+  const onPanMove = useCallback((e) => {
+    const pan = panRef.current;
+    const el = frameRef.current;
+    if (!pan.active || !el) return;
+    el.scrollLeft = pan.left - (e.clientX - pan.x);
+    el.scrollTop = pan.top - (e.clientY - pan.y);
+  }, []);
+
+  const onPanEnd = useCallback(() => {
+    panRef.current.active = false;
+    const el = frameRef.current;
+    if (el) el.style.cursor = 'grab';
+  }, []);
 
   if (!primary?.url) {
     return <Alert type="info" message="No preview available" />;
@@ -131,33 +190,63 @@ function ReceiptPreview({ images }) {
     primary.url.toLowerCase().includes('.pdf');
 
   const zoomControls = (
-    <Space style={{ marginBottom: 8 }}>
-      <Button
-        size="small"
-        icon={<ZoomOutOutlined />}
-        onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}
-        disabled={zoom <= 0.5}
+    <div style={{ marginBottom: 8 }}>
+      <Space wrap style={{ width: '100%' }} align="center">
+        <Button
+          size="small"
+          icon={<ZoomOutOutlined />}
+          onClick={() => setZoom((z) => clampZoom(z - 0.25))}
+          disabled={zoom <= 0.5}
+        />
+        <Text style={{ minWidth: 48, textAlign: 'center', display: 'inline-block' }}>
+          {Math.round(zoom * 100)}%
+        </Text>
+        <Button
+          size="small"
+          icon={<ZoomInOutlined />}
+          onClick={() => setZoom((z) => clampZoom(z + 0.25))}
+          disabled={zoom >= 3}
+        />
+        <Button size="small" icon={<ExpandOutlined />} onClick={() => setZoom(1)}>
+          Reset
+        </Button>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          Scroll to zoom · drag to pan
+        </Text>
+      </Space>
+      <Slider
+        min={50}
+        max={300}
+        step={5}
+        value={Math.round(zoom * 100)}
+        onChange={(v) => setZoom(clampZoom(v / 100))}
+        tipFormatter={(v) => `${v}%`}
+        style={{ margin: '8px 4px 0', maxWidth: 320 }}
       />
-      <Text style={{ minWidth: 48, textAlign: 'center', display: 'inline-block' }}>
-        {Math.round(zoom * 100)}%
-      </Text>
-      <Button
-        size="small"
-        icon={<ZoomInOutlined />}
-        onClick={() => setZoom((z) => Math.min(3, Math.round((z + 0.25) * 100) / 100))}
-        disabled={zoom >= 3}
-      />
-      <Button size="small" icon={<ExpandOutlined />} onClick={() => setZoom(1)}>
-        Reset
-      </Button>
-    </Space>
+    </div>
   );
+
+  const frameStyle = {
+    overflow: 'auto',
+    maxHeight: '70vh',
+    border: '1px solid #d9d9d9',
+    borderRadius: 8,
+    cursor: 'grab',
+    userSelect: 'none',
+  };
+
+  const panHandlers = {
+    onMouseDown: onPanStart,
+    onMouseMove: onPanMove,
+    onMouseUp: onPanEnd,
+    onMouseLeave: onPanEnd,
+  };
 
   if (isPdf) {
     return (
       <div>
         {zoomControls}
-        <div style={{ overflow: 'auto', maxHeight: '70vh', border: '1px solid #d9d9d9', borderRadius: 8 }}>
+        <div ref={frameRef} style={frameStyle} {...panHandlers}>
           <iframe
             title="Receipt PDF"
             src={primary.url}
@@ -166,6 +255,7 @@ function ReceiptPreview({ images }) {
               height: `${Math.max(70, zoom * 70)}vh`,
               border: 'none',
               display: 'block',
+              pointerEvents: 'none',
             }}
           />
         </div>
@@ -176,24 +266,25 @@ function ReceiptPreview({ images }) {
     <div>
       {zoomControls}
       <div
+        ref={frameRef}
         style={{
-          overflow: 'auto',
-          maxHeight: '70vh',
+          ...frameStyle,
           textAlign: 'center',
-          border: '1px solid #d9d9d9',
-          borderRadius: 8,
           padding: 8,
         }}
+        {...panHandlers}
       >
         <img
           alt={primary.name || 'Receipt'}
           src={primary.url}
+          draggable={false}
           style={{
             width: `${zoom * 100}%`,
             maxWidth: 'none',
             height: 'auto',
             display: 'block',
             margin: '0 auto',
+            pointerEvents: 'none',
           }}
         />
       </div>
