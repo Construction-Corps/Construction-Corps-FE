@@ -112,6 +112,31 @@ export const mergeReceiptStaging = async (id, mergeIds) => {
   return _handleResponse(response);
 };
 
+export const uploadReceiptStaging = async (files, { job_id, job_name = '', note = '' } = {}) => {
+  const formData = new FormData();
+  (files || []).forEach((file) => formData.append('files', file));
+  formData.append('job_id', job_id);
+  if (job_name) formData.append('job_name', job_name);
+  if (note) formData.append('note', note);
+
+  const headers = _authHeaders();
+  delete headers['Content-Type']; // let the browser set the multipart boundary
+
+  const response = await fetch(`${API_ROOT}/api/receipts/staging/upload/`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const err = new Error(data.error || `Upload failed (${response.status})`);
+    err.status = response.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+};
+
 export const fetchReceiptReviewSettings = async () => {
   const response = await fetch(`${API_ROOT}/api/receipts/settings/`, {
     headers: _authHeaders(),
