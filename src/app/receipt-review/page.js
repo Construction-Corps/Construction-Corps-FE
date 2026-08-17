@@ -25,6 +25,7 @@ import {
   Divider,
   Modal,
   Slider,
+  Upload,
 } from 'antd';
 import {
   CheckOutlined,
@@ -39,6 +40,8 @@ import {
   LeftOutlined,
   RightOutlined,
   LinkOutlined,
+  UploadOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -54,7 +57,11 @@ import {
   mergeReceiptStaging,
   fetchReceiptReviewSettings,
   updateReceiptReviewSettings,
+  uploadReceiptStaging,
 } from '@/utils/ReceiptStagingApi';
+
+const { Dragger } = Upload;
+const RECEIPT_UPLOAD_ACCEPT = '.jpg,.jpeg,.png,.heic,.heif,.webp,.pdf,image/*,application/pdf';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
@@ -350,6 +357,10 @@ function ReceiptReviewWorkspace() {
   const [autoPostSaving, setAutoPostSaving] = useState(false);
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [mergeSelectedIds, setMergeSelectedIds] = useState([]);
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadFileList, setUploadFileList] = useState([]);
+  const [uploadSubmitting, setUploadSubmitting] = useState(false);
+  const [uploadForm] = Form.useForm();
   const suppressTotalsSync = React.useRef(false);
   const restoredFromUrlRef = React.useRef(false);
 
@@ -824,6 +835,48 @@ function ReceiptReviewWorkspace() {
     setMergeModalOpen(true);
   };
 
+  const openUploadModal = () => {
+    uploadForm.resetFields();
+    setUploadFileList([]);
+    setUploadModalOpen(true);
+  };
+
+  const closeUploadModal = () => {
+    if (uploadSubmitting) return;
+    setUploadModalOpen(false);
+    setUploadFileList([]);
+    uploadForm.resetFields();
+  };
+
+  const handleUploadSubmit = async () => {
+    if (!uploadFileList.length) {
+      message.error('Attach at least one file');
+      return;
+    }
+    try {
+      const values = await uploadForm.validateFields();
+      setUploadSubmitting(true);
+      const job = jobs.find((j) => j.id === values.job_id);
+      const result = await uploadReceiptStaging(
+        uploadFileList.map((f) => f.originFileObj).filter(Boolean),
+        { job_id: values.job_id, job_name: job?.name || '', note: values.note || '' },
+      );
+      message.success(
+        result?.message || 'Uploaded — the receipt will appear in Pending shortly.',
+        6,
+      );
+      setUploadModalOpen(false);
+      setUploadFileList([]);
+      uploadForm.resetFields();
+      loadQueue();
+    } catch (err) {
+      if (err?.errorFields) return;
+      message.error(err.message || 'Failed to upload receipt');
+    } finally {
+      setUploadSubmitting(false);
+    }
+  };
+
   const handleMerge = async () => {
     if (!selectedId || !mergeSelectedIds.length) return;
     setSubmitting(true);
@@ -1039,6 +1092,9 @@ function ReceiptReviewWorkspace() {
               unCheckedChildren="Off"
             />
           </Space>
+          <Button icon={<UploadOutlined />} onClick={openUploadModal}>
+            Upload receipt
+          </Button>
           <Button icon={<ReloadOutlined />} onClick={loadQueue} loading={loadingQueue}>
             Refresh
           </Button>
@@ -1487,6 +1543,58 @@ function ReceiptReviewWorkspace() {
             label: `#${row.id} · ${row.vendor || '—'} · $${row.total != null ? Number(row.total).toFixed(2) : '—'} · ${formatUsDateTime(row.created_at)}`,
           }))}
         />
+      </Modal>
+
+      <Modal
+        title="Upload receipt"
+        open={uploadModalOpen}
+        onCancel={closeUploadModal}
+        onOk={handleUploadSubmit}
+        okText="Upload"
+        confirmLoading={uploadSubmitting}
+        okButtonProps={{ disabled: !uploadFileList.length }}
+        destroyOnClose
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Use this for receipts that never went through Slack — a paper receipt, an emailed invoice, anything you have as a file. OCR runs the same as it does for Slack and the result lands in Pending."
+        />
+        <Form form={uploadForm} layout="vertical">
+          <Form.Item name="job_id" label="Job" rules={[{ required: true, message: 'Job required' }]}>
+            <Select
+              showSearch
+              placeholder="Select job"
+              optionFilterProp="label"
+              options={jobs.map((j) => ({ value: j.id, label: j.name }))}
+              disabled={uploadSubmitting}
+            />
+          </Form.Item>
+          <Form.Item label="Receipt file(s)" required>
+            <Dragger
+              multiple
+              fileList={uploadFileList}
+              beforeUpload={() => false}
+              onChange={({ fileList }) => setUploadFileList(fileList)}
+              onRemove={(file) => {
+                setUploadFileList((list) => list.filter((f) => f.uid !== file.uid));
+              }}
+              accept={RECEIPT_UPLOAD_ACCEPT}
+              disabled={uploadSubmitting}
+            >
+              <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+              <p className="ant-upload-text">Click or drag receipt file(s) here</p>
+              <p className="ant-upload-hint">
+                Images or PDF. Multiple files are treated as one receipt (e.g. front + back) — upload
+                separately if they&apos;re actually different purchases.
+              </p>
+            </Dragger>
+          </Form.Item>
+          <Form.Item name="note" label="Note (optional)">
+            <TextArea rows={2} placeholder="Anything worth telling the reviewer" disabled={uploadSubmitting} />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );
