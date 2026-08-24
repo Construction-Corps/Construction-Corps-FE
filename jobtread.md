@@ -1,5 +1,14 @@
 # JobTread API Documentation
 
+> **A more complete, actively-maintained version of this reference lives in
+> the CCBE repo:** [`docs/JOBTREAD_API_GUIDE.md`](https://github.com/Construction-Corps/CCBE/blob/main/docs/JOBTREAD_API_GUIDE.md).
+> It has everything below plus verified entity shapes/traps (custom fields,
+> `where` clause gotchas, 413s on deep nesting, document field names, etc.)
+> and a testing methodology for an AI working from a grant key alone. Prefer
+> that doc for new work; this file is kept for the FE-specific integration
+> notes (file upload / comment helpers) below that don't apply outside this
+> codebase.
+
 This document provides a comprehensive reference for integrating with the JobTread API. It covers both essential integration details (such as file uploads and comment creation) and an extensive API overview spanning authentication, webhooks, and advanced querying using the Pave query language.
 
 ---
