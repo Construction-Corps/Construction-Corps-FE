@@ -64,7 +64,7 @@ const { Dragger } = Upload;
 const RECEIPT_UPLOAD_ACCEPT = '.jpg,.jpeg,.png,.heic,.heif,.webp,.pdf,image/*,application/pdf';
 
 const { Content } = Layout;
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { TextArea } = Input;
 
 const PAYMENT_METHODS = ['Capital One Spark', 'Card', 'Cash', 'Check', 'ACH', 'Other'];
