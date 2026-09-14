@@ -1082,11 +1082,7 @@ function ReceiptReviewWorkspace() {
 
   return (
     <div style={{ padding: 24, maxWidth: 1600, margin: '0 auto' }}>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div>
-          <Title level={3} style={{ margin: 0 }}>Receipt Review</Title>
-          <Text type="secondary">Review OCR + budget coding suggestions, edit, then post bill + payment</Text>
-        </div>
+      <Space style={{ width: '100%', justifyContent: 'flex-end', marginBottom: 16 }}>
         <Space>
           <Space size={8}>
             <Text type="secondary">Auto-post</Text>
