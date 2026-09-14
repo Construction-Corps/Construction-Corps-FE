@@ -271,21 +271,27 @@ function ReceiptPreview({ images }) {
 
   if (isPdf) {
     return (
-      <div>
-        {zoomControls}
-        <div ref={frameRef} style={frameStyle} {...panHandlers}>
+      <div
+        style={{
+          height: '70vh',
+          border: '1px solid #d9d9d9',
+          borderRadius: 8,
+          overflow: 'hidden',
+          background: '#fafafa',
+        }}
+      >
+        <object
+          data={primary.url}
+          type="application/pdf"
+          title="Receipt PDF"
+          style={{ width: '100%', height: '100%', display: 'block' }}
+        >
           <iframe
             title="Receipt PDF"
             src={primary.url}
-            style={{
-              width: `${zoom * 100}%`,
-              height: `${Math.max(70, zoom * 70)}vh`,
-              border: 'none',
-              display: 'block',
-              pointerEvents: 'none',
-            }}
+            style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
           />
-        </div>
+        </object>
       </div>
     );
   }
