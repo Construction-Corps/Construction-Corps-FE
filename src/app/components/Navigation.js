@@ -6,6 +6,11 @@ import { MenuOutlined, LoginOutlined, LogoutOutlined, UserOutlined, AppstoreOutl
 import Link from 'next/link';
 import { useAuth } from '../../contexts/AuthContext';
 
+// Shown in the nav drawer even when logged out (e.g. Slack deep links to /receipt-review).
+const PUBLIC_MENU_ITEMS = [
+  { name: 'Receipt Review', url: '/receipt-review' },
+];
+
 const Navigation = () => {
   const [menuVisible, setMenuVisible] = useState(false);
   const { isAuthenticated, user, logout, visibleMenuItems, menuLoading } = useAuth();
@@ -37,6 +42,12 @@ const Navigation = () => {
           <Menu.Item key="home">
             <Link href="/">Home</Link>
           </Menu.Item>
+
+          {!isAuthenticated && PUBLIC_MENU_ITEMS.map(item => (
+            <Menu.Item key={item.url}>
+              <Link href={item.url}>{item.name}</Link>
+            </Menu.Item>
+          ))}
           
           {/* Dynamic menu items based on context */}
           {isAuthenticated && menuLoading && (
