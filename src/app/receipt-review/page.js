@@ -64,7 +64,7 @@ const { Dragger } = Upload;
 const RECEIPT_UPLOAD_ACCEPT = '.jpg,.jpeg,.png,.heic,.heif,.webp,.pdf,image/*,application/pdf';
 
 const { Content } = Layout;
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { TextArea } = Input;
 
 const PAYMENT_METHODS = ['Capital One Spark', 'Card', 'Cash', 'Check', 'ACH', 'Other'];
@@ -271,21 +271,27 @@ function ReceiptPreview({ images }) {
 
   if (isPdf) {
     return (
-      <div>
-        {zoomControls}
-        <div ref={frameRef} style={frameStyle} {...panHandlers}>
+      <div
+        style={{
+          height: '70vh',
+          border: '1px solid #d9d9d9',
+          borderRadius: 8,
+          overflow: 'hidden',
+          background: '#fafafa',
+        }}
+      >
+        <object
+          data={primary.url}
+          type="application/pdf"
+          title="Receipt PDF"
+          style={{ width: '100%', height: '100%', display: 'block' }}
+        >
           <iframe
             title="Receipt PDF"
             src={primary.url}
-            style={{
-              width: `${zoom * 100}%`,
-              height: `${Math.max(70, zoom * 70)}vh`,
-              border: 'none',
-              display: 'block',
-              pointerEvents: 'none',
-            }}
+            style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
           />
-        </div>
+        </object>
       </div>
     );
   }
@@ -1076,11 +1082,7 @@ function ReceiptReviewWorkspace() {
 
   return (
     <div style={{ padding: 24, maxWidth: 1600, margin: '0 auto' }}>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div>
-          <Title level={3} style={{ margin: 0 }}>Receipt Review</Title>
-          <Text type="secondary">Review OCR + budget coding suggestions, edit, then post bill + payment</Text>
-        </div>
+      <Space style={{ width: '100%', justifyContent: 'flex-end', marginBottom: 16 }}>
         <Space>
           <Space size={8}>
             <Text type="secondary">Auto-post</Text>
