@@ -9,8 +9,8 @@ const _authHeaders = () => {
   return headers;
 };
 
-const _get = async (path) => {
-  const response = await fetch(`${API_ROOT}${path}`, { headers: _authHeaders() });
+const _request = async (path, options = {}) => {
+  const response = await fetch(`${API_ROOT}${path}`, { ...options, headers: _authHeaders() });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(data.error || data.detail || `Request failed (${response.status})`);
@@ -18,13 +18,19 @@ const _get = async (path) => {
   return data;
 };
 
-export const fetchAutomationsOverview = () => _get('/automations/api/overview/');
+export const fetchAutomationsOverview = () => _request('/automations/api/overview/');
 
 export const fetchAutomationRuns = (params = {}) => {
   const query = new URLSearchParams(
     Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
   );
-  return _get(`/automations/api/runs/?${query}`);
+  return _request(`/automations/api/runs/?${query}`);
 };
 
-export const fetchAutomationRun = (id) => _get(`/automations/api/runs/${id}/`);
+export const fetchAutomationRun = (id) => _request(`/automations/api/runs/${id}/`);
+
+export const setAutomationLive = (key, live) =>
+  _request(`/automations/api/automations/${encodeURIComponent(key)}/live/`, {
+    method: 'POST',
+    body: JSON.stringify({ live }),
+  });

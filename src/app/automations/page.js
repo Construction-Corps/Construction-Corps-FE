@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Col, Input, Layout, Row, Select, Space, Spin, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, Input, Layout, Modal, Row, Select, Space, Spin, Switch, Table, Tag, Typography, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ProtectedRoute from '../../components/ProtectedRoute';
-import { fetchAutomationRun, fetchAutomationRuns, fetchAutomationsOverview } from '@/utils/AutomationsApi';
+import { fetchAutomationRun, fetchAutomationRuns, fetchAutomationsOverview, setAutomationLive } from '@/utils/AutomationsApi';
 
 const { Content } = Layout;
 const { Text, Title } = Typography;
@@ -48,6 +48,8 @@ function StepList({ runId }) {
 
 function AutomationsPage() {
   const [overview, setOverview] = useState([]);
+  const [canSwitch, setCanSwitch] = useState(false);
+  const [switching, setSwitching] = useState('');
   const [runs, setRuns] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -64,6 +66,7 @@ function AutomationsPage() {
         fetchAutomationRuns({ ...filters, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
       ]);
       setOverview(ov.automations || []);
+      setCanSwitch(Boolean(ov.can_switch));
       setRuns(list.items || []);
       setTotal(list.total || 0);
     } catch (e) {
@@ -76,6 +79,31 @@ function AutomationsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const flipLive = (automation, live) => {
+    const apply = async () => {
+      setSwitching(automation.key);
+      try {
+        const result = await setAutomationLive(automation.key, live);
+        setOverview((items) => items.map((a) => (a.key === automation.key ? { ...a, live: result.live } : a)));
+        message.success(`${automation.label} is now ${result.live ? 'live' : 'in dry run'}`);
+      } catch (e) {
+        message.error(e.message);
+      } finally {
+        setSwitching('');
+      }
+    };
+    if (!live) {
+      apply();
+      return;
+    }
+    Modal.confirm({
+      title: `Turn "${automation.label}" live?`,
+      content: 'It will send texts, emails and sheet rows for real. Turn its Zap off first so nothing goes out twice.',
+      okText: 'Turn live',
+      onOk: apply,
+    });
+  };
 
   const setFilter = (key, value) => {
     setPage(1);
@@ -114,6 +142,7 @@ function AutomationsPage() {
         </Space>
         <Text type="secondary">
           Dry run means the automation ran its lookups and recorded what it would do, without sending or writing anything.
+          {canSwitch ? ' Use the switch on a card to turn it live.' : ' Only staff can turn an automation live.'}
         </Text>
 
         {error && <Alert type="error" message={error} style={{ marginTop: 12 }} />}
@@ -127,7 +156,20 @@ function AutomationsPage() {
                 onClick={() => setFilter('automation', filters.automation === a.key ? undefined : a.key)}
                 style={filters.automation === a.key ? { borderColor: '#1677ff' } : undefined}
                 title={a.label}
-                extra={a.live ? <Tag color="green">live</Tag> : <Tag color="gold">dry run</Tag>}
+                extra={
+                  canSwitch ? (
+                    <span onClick={(e) => e.stopPropagation()}>
+                      <Switch
+                        size="small"
+                        checked={a.live}
+                        loading={switching === a.key}
+                        checkedChildren="live"
+                        unCheckedChildren="dry run"
+                        onChange={(on) => flipLive(a, on)}
+                      />
+                    </span>
+                  ) : a.live ? <Tag color="green">live</Tag> : <Tag color="gold">dry run</Tag>
+                }
               >
                 <Space wrap size={4}>
                   {Object.entries(a.counts).map(([status, n]) => (
