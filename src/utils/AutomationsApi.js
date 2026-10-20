@@ -34,3 +34,6 @@ export const setAutomationLive = (key, live) =>
     method: 'POST',
     body: JSON.stringify({ live }),
   });
+
+export const retryAutomationRun = (id) =>
+  _request(`/automations/api/runs/${id}/retry/`, { method: 'POST' });
