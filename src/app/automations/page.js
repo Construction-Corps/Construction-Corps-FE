@@ -5,7 +5,7 @@ import { Alert, Button, Card, Col, Input, Layout, Modal, Row, Select, Space, Spi
 import { ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ProtectedRoute from '../../components/ProtectedRoute';
-import { fetchAutomationRun, fetchAutomationRuns, fetchAutomationsOverview, setAutomationLive } from '@/utils/AutomationsApi';
+import { fetchAutomationRun, fetchAutomationRuns, fetchAutomationsOverview, retryAutomationRun, setAutomationLive } from '@/utils/AutomationsApi';
 
 const { Content } = Layout;
 const { Text, Title } = Typography;
@@ -50,6 +50,7 @@ function AutomationsPage() {
   const [overview, setOverview] = useState([]);
   const [canSwitch, setCanSwitch] = useState(false);
   const [switching, setSwitching] = useState('');
+  const [retrying, setRetrying] = useState(null);
   const [runs, setRuns] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -105,6 +106,29 @@ function AutomationsPage() {
     });
   };
 
+  const retryRun = (row) => {
+    const live = overview.find((a) => a.key === row.automation)?.live;
+    Modal.confirm({
+      title: `Retry "${row.summary || row.label}"?`,
+      content: live
+        ? 'This automation is live, so the retry sends for real. Steps that already went through (texts, emails, Slack messages) go out again; leads already on the sheet or in JobTread are skipped.'
+        : 'This automation is in dry run, so the retry only records what it would do.',
+      okText: 'Retry',
+      onOk: async () => {
+        setRetrying(row.id);
+        try {
+          const result = await retryAutomationRun(row.id);
+          message.success(`Retried: ${result.status}`);
+          load();
+        } catch (e) {
+          message.error(e.message);
+        } finally {
+          setRetrying(null);
+        }
+      },
+    });
+  };
+
   const setFilter = (key, value) => {
     setPage(1);
     setFilters((current) => ({ ...current, [key]: value }));
@@ -131,6 +155,15 @@ function AutomationsPage() {
       ),
     },
     { title: 'What', dataIndex: 'summary', ellipsis: true },
+    ...(canSwitch
+      ? [{
+        title: '',
+        width: 90,
+        render: (_, row) => (
+          <Button size="small" loading={retrying === row.id} onClick={() => retryRun(row)}>Retry</Button>
+        ),
+      }]
+      : []),
   ];
 
   return (
@@ -142,7 +175,7 @@ function AutomationsPage() {
         </Space>
         <Text type="secondary">
           Dry run means the automation ran its lookups and recorded what it would do, without sending or writing anything.
-          {canSwitch ? ' Use the switch on a card to turn it live.' : ' Only staff can turn an automation live.'}
+          {canSwitch ? ' Use the switch on a card to turn it live, and Retry on a run to run it again.' : ' Only staff can turn an automation live or retry a run.'}
         </Text>
 
         {error && <Alert type="error" message={error} style={{ marginTop: 12 }} />}
