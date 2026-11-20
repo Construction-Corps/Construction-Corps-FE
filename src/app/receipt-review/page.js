@@ -139,11 +139,13 @@ function formatUsDateTime(value) {
 
 function ReceiptPreview({ images }) {
   const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [imageIndex, setImageIndex] = useState(0);
   const imgs = images || [];
   const primary = imgs[imageIndex] || imgs[0];
   const frameRef = useRef(null);
-  const panRef = useRef({ active: false, x: 0, y: 0, left: 0, top: 0 });
+  const panRef = useRef({ active: false, x: 0, y: 0, originX: 0, originY: 0 });
+  const hoverRef = useRef(false);
 
   useEffect(() => {
     setImageIndex(0);
@@ -151,26 +153,38 @@ function ReceiptPreview({ images }) {
 
   useEffect(() => {
     setZoom(1);
+    setPan({ x: 0, y: 0 });
   }, [primary?.url]);
 
   const clampZoom = useCallback((z) => Math.min(3, Math.max(0.5, Math.round(z * 100) / 100)), []);
 
+  // Scale the pan with the zoom so the point in the middle of the frame stays there.
+  const applyZoom = useCallback((next) => {
+    setZoom((z) => {
+      const clamped = clampZoom(typeof next === 'function' ? next(z) : next);
+      const ratio = z ? clamped / z : 1;
+      if (ratio !== 1) {
+        setPan((p) => ({ x: p.x * ratio, y: p.y * ratio }));
+      }
+      return clamped;
+    });
+  }, [clampZoom]);
+
   const onWheelZoom = useCallback(
     (e) => {
-      // Shift+wheel pans vertically so zoomed images stay movable without the scrollbar.
+      e.preventDefault();
+      // Shift+wheel pans. Plain wheel scales around the center of the frame.
       if (e.shiftKey) {
-        e.preventDefault();
-        const el = frameRef.current;
-        if (!el) return;
-        el.scrollLeft += e.deltaY;
-        el.scrollTop += e.deltaX;
+        setPan((p) => ({
+          x: p.x - e.deltaY,
+          y: p.y - e.deltaX,
+        }));
         return;
       }
-      e.preventDefault();
-      const step = e.deltaY > 0 ? -0.1 : 0.1;
-      setZoom((z) => clampZoom(z + step));
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      applyZoom((z) => z * factor);
     },
-    [clampZoom],
+    [applyZoom],
   );
 
   useEffect(() => {
@@ -180,6 +194,36 @@ function ReceiptPreview({ images }) {
     return () => el.removeEventListener('wheel', onWheelZoom);
   }, [onWheelZoom, primary?.url]);
 
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
+      if (!hoverRef.current && document.activeElement !== frameRef.current) return;
+      const step = e.shiftKey ? 80 : 48;
+      if (e.key === 'ArrowLeft') {
+        setPan((p) => ({ ...p, x: p.x + step }));
+        e.preventDefault();
+      } else if (e.key === 'ArrowRight') {
+        setPan((p) => ({ ...p, x: p.x - step }));
+        e.preventDefault();
+      } else if (e.key === 'ArrowUp') {
+        setPan((p) => ({ ...p, y: p.y + step }));
+        e.preventDefault();
+      } else if (e.key === 'ArrowDown') {
+        setPan((p) => ({ ...p, y: p.y - step }));
+        e.preventDefault();
+      } else if (e.key === '+' || e.key === '=') {
+        applyZoom((z) => z + 0.1);
+        e.preventDefault();
+      } else if (e.key === '-' || e.key === '_') {
+        applyZoom((z) => z - 0.1);
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [applyZoom]);
+
   const onPanStart = useCallback((e) => {
     if (e.button !== 0) return;
     const el = frameRef.current;
@@ -188,19 +232,20 @@ function ReceiptPreview({ images }) {
       active: true,
       x: e.clientX,
       y: e.clientY,
-      left: el.scrollLeft,
-      top: el.scrollTop,
+      originX: pan.x,
+      originY: pan.y,
     };
     el.style.cursor = 'grabbing';
     e.preventDefault();
-  }, []);
+  }, [pan.x, pan.y]);
 
   const onPanMove = useCallback((e) => {
-    const pan = panRef.current;
-    const el = frameRef.current;
-    if (!pan.active || !el) return;
-    el.scrollLeft = pan.left - (e.clientX - pan.x);
-    el.scrollTop = pan.top - (e.clientY - pan.y);
+    const drag = panRef.current;
+    if (!drag.active) return;
+    setPan({
+      x: drag.originX + (e.clientX - drag.x),
+      y: drag.originY + (e.clientY - drag.y),
+    });
   }, []);
 
   const onPanEnd = useCallback(() => {
@@ -222,7 +267,7 @@ function ReceiptPreview({ images }) {
         <Button
           size="small"
           icon={<ZoomOutOutlined />}
-          onClick={() => setZoom((z) => clampZoom(z - 0.25))}
+          onClick={() => applyZoom((z) => z - 0.25)}
           disabled={zoom <= 0.5}
         />
         <Text style={{ minWidth: 48, textAlign: 'center', display: 'inline-block' }}>
@@ -231,22 +276,26 @@ function ReceiptPreview({ images }) {
         <Button
           size="small"
           icon={<ZoomInOutlined />}
-          onClick={() => setZoom((z) => clampZoom(z + 0.25))}
+          onClick={() => applyZoom((z) => z + 0.25)}
           disabled={zoom >= 3}
         />
-        <Button size="small" icon={<ExpandOutlined />} onClick={() => setZoom(1)}>
+        <Button
+          size="small"
+          icon={<ExpandOutlined />}
+          onClick={() => {
+            setZoom(1);
+            setPan({ x: 0, y: 0 });
+          }}
+        >
           Reset
         </Button>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          Scroll to zoom · drag to pan
-        </Text>
       </Space>
       <Slider
         min={50}
         max={300}
         step={5}
         value={Math.round(zoom * 100)}
-        onChange={(v) => setZoom(clampZoom(v / 100))}
+        onChange={(v) => applyZoom(v / 100)}
         tipFormatter={(v) => `${v}%`}
         style={{ margin: '8px 4px 0', maxWidth: 320 }}
       />
@@ -254,13 +303,46 @@ function ReceiptPreview({ images }) {
   );
 
   const frameStyle = {
-    overflow: 'auto',
-    maxHeight: '70vh',
+    position: 'relative',
+    overflow: 'hidden',
+    height: '70vh',
     border: '1px solid #d9d9d9',
     borderRadius: 8,
     cursor: 'grab',
     userSelect: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#fafafa',
+    touchAction: 'none',
+    outline: 'none',
   };
+
+  const moveLegend = (
+    <div
+      style={{
+        position: 'absolute',
+        left: 8,
+        bottom: 8,
+        zIndex: 2,
+        background: 'rgba(0,0,0,0.78)',
+        color: '#fff',
+        borderRadius: 8,
+        padding: '8px 10px',
+        fontSize: 12,
+        lineHeight: 1.45,
+        pointerEvents: 'none',
+        maxWidth: 'calc(100% - 16px)',
+      }}
+    >
+      <div style={{ fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', opacity: 0.75, marginBottom: 2 }}>
+        HOW TO MOVE
+      </div>
+      <div>← → &nbsp; drag or arrow keys — left and right</div>
+      <div>↑ ↓ &nbsp; drag or arrow keys — up and down</div>
+      <div>scroll &nbsp; zoom in and out, stays centered</div>
+    </div>
+  );
 
   const panHandlers = {
     onMouseDown: onPanStart,
@@ -300,26 +382,29 @@ function ReceiptPreview({ images }) {
       {zoomControls}
       <div
         ref={frameRef}
-        style={{
-          ...frameStyle,
-          textAlign: 'center',
-          padding: 8,
-        }}
+        tabIndex={0}
+        style={frameStyle}
         {...panHandlers}
+        onMouseEnter={() => { hoverRef.current = true; }}
+        onMouseLeave={() => { hoverRef.current = false; onPanEnd(); }}
       >
         <img
           alt={primary.name || 'Receipt'}
           src={primary.url}
           draggable={false}
           style={{
-            width: `${zoom * 100}%`,
-            maxWidth: 'none',
+            maxWidth: '100%',
+            maxHeight: '100%',
+            width: 'auto',
             height: 'auto',
             display: 'block',
-            margin: '0 auto',
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transformOrigin: 'center center',
             pointerEvents: 'none',
+            willChange: 'transform',
           }}
         />
+        {moveLegend}
       </div>
       {(imgs || []).length > 1 && (
         <Space style={{ marginTop: 8 }} wrap>
